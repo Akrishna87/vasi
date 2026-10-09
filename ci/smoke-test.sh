@@ -118,8 +118,7 @@ shot 6-notification
 adb shell cmd statusbar collapse
 
 adb shell am start -W -n "$PKG/.MainActivity"
-sleep 2
-dump back-in
+wait_for back-in 'content-desc="Pause"' 30 "the player doesn't offer Pause while reading"
 tap back-in "Pause"
 wait_state "PAUSED|2" 15 "pausing didn't pause"
 echo "PASS: pause"

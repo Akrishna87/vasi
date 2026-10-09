@@ -61,6 +61,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
@@ -364,6 +365,14 @@ private fun PlayerPanel(
                 Spacer(Modifier.weight(1f))
                 IconButton(onClick = { onSkip(-1) }) { Icon(Icons.Rounded.SkipPrevious, contentDescription = "Previous sentence") }
                 Box(contentAlignment = Alignment.Center) {
+                    // The ring goes underneath, out of the way of the button for touch and TalkBack.
+                    if (playing && reader.waiting) {
+                        CircularProgressIndicator(
+                            Modifier.size(66.dp).clearAndSetSemantics {},
+                            strokeWidth = 2.dp,
+                            color = Palette.Teal,
+                        )
+                    }
                     FilledIconButton(
                         onClick = onPlay,
                         modifier = Modifier.size(60.dp),
@@ -374,9 +383,6 @@ private fun PlayerPanel(
                             contentDescription = if (playing) "Pause" else "Play",
                             modifier = Modifier.size(32.dp),
                         )
-                    }
-                    if (playing && reader.waiting) {
-                        CircularProgressIndicator(Modifier.size(66.dp), strokeWidth = 2.dp, color = Palette.Teal)
                     }
                 }
                 IconButton(onClick = { onSkip(1) }) { Icon(Icons.Rounded.SkipNext, contentDescription = "Next sentence") }

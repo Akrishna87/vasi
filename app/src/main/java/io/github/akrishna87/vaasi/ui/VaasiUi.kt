@@ -60,6 +60,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -330,7 +331,9 @@ private fun MiniPlayer(state: Reader.State, onOpen: () -> Unit) {
                 )
             }
             Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
-                if (state.playing && state.waiting) CircularProgressIndicator(Modifier.size(44.dp), strokeWidth = 2.dp)
+                if (state.playing && state.waiting) {
+                    CircularProgressIndicator(Modifier.size(44.dp).clearAndSetSemantics {}, strokeWidth = 2.dp)
+                }
                 IconButton(onClick = { Reader.toggle(context) }) {
                     Icon(
                         if (state.playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
