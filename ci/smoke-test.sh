@@ -127,26 +127,27 @@ echo "--- Choosing another voice"
 dump paused
 tap paused "Bella"
 wait_for voices 'text="Narrator"' 15 "the voices screen didn't open"
-tap voices "Hear George"
+# Voices near the top of the list, so no scrolling is needed.
+tap voices "Hear Michael"
 sleep 8
-tap voices "George"
+tap voices "Michael"
 sleep 2
-dump voices-george
+dump voices-michael
 shot 7-voices
-tap voices-george "Dialogue"
+tap voices-michael "Dialogue"
 sleep 2
 dump dialogue
-tap dialogue "Emma"
+tap dialogue "Sarah"
 sleep 1
 shot 8-dialogue
 adb shell input keyevent KEYCODE_BACK
 sleep 2
-dump book-george
-grep -q 'text="George"' "$OUT/book-george.xml" || fail "the player doesn't show the new voice"
+dump book-voice
+grep -q 'text="Michael"' "$OUT/book-voice.xml" || fail "the player doesn't show the new voice"
 echo "PASS: voices"
 
 echo "--- Saving as an audio file"
-tap book-george "More"
+tap book-voice "More"
 sleep 1
 dump menu
 tap menu "Save as audio file"
