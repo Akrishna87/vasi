@@ -20,7 +20,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install sherpa-onnx==1.13.8 onnxruntime numpy
+      - run: pip install sherpa-onnx==1.13.8 onnxruntime onnx numpy
       - name: Download the voice packs
         run: |
           mkdir -p packs && cd packs
