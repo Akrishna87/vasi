@@ -27,23 +27,27 @@ object TextCleaner {
             current = StringBuilder()
         }
 
+        // A blank line or a page break ends a paragraph, unless the text plainly runs on
+        // across it ("...the first" / "edition was..."): PDFs often break mid-sentence.
+        var pendingBreak = false
         pageLines.forEachIndexed { index, rawLines ->
             val page = index + 1
             val lines = stripEdges(rawLines, boilerplate)
             val typical = typicalLength(lines)
+            pendingBreak = true
             for ((i, line) in lines.withIndex()) {
                 if (line.isEmpty()) {
-                    flush()
+                    pendingBreak = true
                     continue
                 }
+                if (pendingBreak && current.isNotEmpty() && !runsOn(current, line)) flush()
+                pendingBreak = false
                 if (current.isEmpty()) currentPage = page
                 appendLine(current, line)
 
                 val next = lines.getOrNull(i + 1)
                 if (next != null && next.isNotEmpty() && looksLikeParagraphEnd(line, next, typical)) flush()
             }
-            // A paragraph carries over to the next page only if it stops mid-sentence.
-            if (current.isNotEmpty() && endsParagraph(current)) flush()
         }
         flush()
         return paragraphs
@@ -86,7 +90,8 @@ object TextCleaner {
         if (pages.size < 3) return emptySet()
         val counts = HashMap<String, Int>()
         for (lines in pages) {
-            edgeIndices(lines).map { signature(lines[it]) }.filter { it.isNotEmpty() }.toSet()
+            // Running heads and feet are short; long lines are body text even if they repeat.
+            edgeIndices(lines).filter { lines[it].length <= 90 }.map { signature(lines[it]) }.filter { it.isNotEmpty() }.toSet()
                 .forEach { counts[it] = (counts[it] ?: 0) + 1 }
         }
         val threshold = maxOf(2, kotlin.math.ceil(pages.size * 0.4).toInt())
@@ -120,8 +125,15 @@ object TextCleaner {
         val short = line.length < typical * 0.75
         if (short && endsParagraph(line)) return true
         val heading = line.length < typical * 0.6 && line.last().isLetterOrDigit() &&
-            line.first().isUpperCase() && next.first().isUpperCase() && line.split(' ').size <= 8
+            (line.first().isUpperCase() || line.first().isDigit()) && next.first().isUpperCase() && line.split(' ').size <= 8
         return heading
+    }
+
+    /** Whether [next] carries on the unfinished sentence in [paragraph] across a break. */
+    private fun runsOn(paragraph: CharSequence, next: String): Boolean {
+        if (endsParagraph(paragraph)) return false
+        val last = paragraph.trimEnd().lastOrNull() ?: return false
+        return next.first().isLowerCase() || last == ',' || last == '-' || last == '–'
     }
 
     private fun appendLine(paragraph: StringBuilder, line: String) {
@@ -142,9 +154,11 @@ object TextCleaner {
 
     private val citation = Regex("\\s*\\[\\d+(?:[,–-]\\s*\\d+)*]")
     private val bullets = Regex("^[•●▪■◦‣∙·*-]\\s+")
+    /** Dot leaders in a table of contents: "Chapter 1 .......... 5". */
+    private val leaders = Regex("(?:\\s?[.·…]\\s?){4,}")
 
     internal fun finishParagraph(text: String): String {
-        val s = text.replace(citation, "").replace(bullets, "").replace(Regex("\\s{2,}"), " ").trim()
+        val s = text.replace(citation, "").replace(bullets, "").replace(leaders, " ").replace(Regex("\\s{2,}"), " ").trim()
         // Lines of only numbers, dots or symbols (tables of contents, rulers) aren't worth reading.
         return if (s.none { it.isLetter() }) "" else s
     }

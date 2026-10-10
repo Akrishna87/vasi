@@ -24,6 +24,13 @@ class SentencesTest {
     }
 
     @Test
+    fun keepsSectionNumbersWithTheirHeadings() {
+        assertEquals(listOf("1. Introduction"), Sentences.split("1. Introduction"))
+        assertEquals(listOf("2.3. Results and Discussion"), Sentences.split("2.3. Results and Discussion"))
+        assertEquals(listOf("She was 5.", "Then she grew up."), Sentences.split("She was 5. Then she grew up."))
+    }
+
+    @Test
     fun keepsClosingQuotesWithTheirSentence() {
         assertEquals(
             listOf("“Stop!” she said.", "“Why?” he asked."),

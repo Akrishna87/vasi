@@ -45,6 +45,23 @@ class TextCleanerTest {
     }
 
     @Test
+    fun joinsASentenceThePdfBrokeWithABlankLine() {
+        val text = TextCleaner.clean(listOf("No part may be reproduced. First\n\n\nedition. Printed in India.")).map { it.text }
+        assertEquals(listOf("No part may be reproduced. First edition. Printed in India."), text)
+    }
+
+    @Test
+    fun keepsTheLastContentsLineOffTheNextPagesHeading() {
+        val text = TextCleaner.clean(listOf("Contents\n\n4 Introduction\n\n12 Chapter 3: Habits", "Introduction\n\nIt begins.")).map { it.text }
+        assertEquals(listOf("Contents", "4 Introduction", "12 Chapter 3: Habits", "Introduction", "It begins."), text)
+    }
+
+    @Test
+    fun dropsDotLeaders() {
+        assertEquals("Chapter 1 5", TextCleaner.clean(listOf("Chapter 1 .......... 5")).single().text)
+    }
+
+    @Test
     fun startsANewParagraphAfterAFinishedSentenceAtAPageBreak() {
         val paragraphs = TextCleaner.clean(listOf("The end of a thought.", "Something else entirely."))
         assertEquals(2, paragraphs.size)

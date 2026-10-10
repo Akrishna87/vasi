@@ -97,6 +97,8 @@ grep -q 'The Lighthouse Keeper' "$OUT/book.xml" || fail "the book isn't titled f
 grep -q 'A Vaasi test story' "$OUT/book.xml" && fail "the running header wasn't removed"
 grep -q 'towards the harbour' "$OUT/book.xml" || fail "the hyphenated 'har-bour' wasn't mended"
 echo "PASS: the PDF's text is cleaned up"
+grep -q 'Starts at “Chapter One”' "$OUT/book.xml" || fail "it doesn't start at Chapter One, past the title page and contents"
+echo "PASS: starts at Chapter One"
 
 echo "--- Reading aloud"
 tap book "Play"
@@ -107,6 +109,8 @@ dump reading
 shot 5-reading
 show reading
 state_is "PLAYING|3|BUFFERING|6" || fail "reading stopped by itself"
+grep -q 'Chapter One · Page 4 of 6' "$OUT/reading.xml" || grep -q 'Getting the voice ready' "$OUT/reading.xml" \
+  || fail "it isn't reading Chapter One"
 
 adb shell input keyevent KEYCODE_HOME
 sleep 10
@@ -146,6 +150,28 @@ dump book-voice
 grep -q 'text="Michael"' "$OUT/book-voice.xml" || fail "the player doesn't show the new voice"
 echo "PASS: voices"
 
+echo "--- Jumping to a chapter"
+tap book-voice "Contents"
+wait_for contents 'text="Beginning of the PDF"' 15 "the Contents sheet didn't open"
+shot 9-contents
+show contents
+tap contents "Chapter Two" last
+# The player shows "Chapter Two · Page 6 of 6", or "Getting the voice ready…" while the emulator's
+# slow voice catches up; the media session always says which page it's on.
+end=$((SECONDS + 60))
+until session; grep -q "Page 6 of 6" "$OUT/session.txt"; do
+  [ $SECONDS -lt $end ] || fail "choosing Chapter Two didn't move the reading there"
+  sleep 3
+done
+dump chapter-two
+shot 10-chapter-two
+wait_state "PLAYING|3|BUFFERING|6" 30 "it didn't read from Chapter Two"
+wait_for chapter-two-pause 'content-desc="Pause"' 30 "no Pause button while reading Chapter Two"
+tap chapter-two-pause "Pause"
+wait_state "PAUSED|2" 15 "pausing didn't pause"
+echo "PASS: contents"
+dump book-voice
+
 echo "--- Saving as an audio file"
 tap book-voice "More"
 sleep 1
@@ -155,7 +181,7 @@ sleep 1
 dump confirm
 tap confirm "Save"
 wait_for saved 'Saved to Music/Vaasi' 600 "saving the audio file didn't finish"
-shot 9-saved
+shot 11-saved
 adb shell ls -l /sdcard/Music/Vaasi/ | tee "$OUT/music.txt"
 adb pull "/sdcard/Music/Vaasi/The Lighthouse Keeper.m4a" "$OUT/sample.m4a" || fail "the audio file isn't in Music/Vaasi"
 [ "$(stat -c %s "$OUT/sample.m4a")" -gt 50000 ] || fail "the audio file is suspiciously small"

@@ -1,8 +1,9 @@
 """Usage: python3 ci/make_test_pdf.py <out.pdf>
 
-Writes a three-page story PDF for the emulator test, laid out the way real PDFs are:
-a running header, page numbers, a word hyphenated across lines, a paragraph that
-continues over a page break, and dialogue in quotation marks."""
+Writes a short story PDF for the emulator test, laid out the way real books are: a title
+page, a copyright page and a contents page before the story (which Vaasi should skip to
+start at Chapter One), then a running header, page numbers, a word hyphenated across
+lines, a paragraph that continues over a page break, and dialogue in quotation marks."""
 import sys
 from reportlab.lib.pagesizes import A5
 from reportlab.pdfgen import canvas
@@ -36,11 +37,32 @@ PAGES = [
     ],
 ]
 
+FRONT = 3  # title, copyright and contents pages
+
+def front_matter(c, width, height):
+    c.setFont("Helvetica-Bold", 22)
+    c.drawCentredString(width / 2, height / 2 + 40, "The Lighthouse Keeper")
+    c.setFont("Helvetica", 12)
+    c.drawCentredString(width / 2, height / 2, "A short story")
+    c.drawCentredString(width / 2, height / 2 - 40, "by A. Writer")
+    c.showPage()
+    c.setFont("Helvetica", 8)
+    c.drawString(40, 90, "Copyright © 2026 A. Writer. All rights reserved. No part of this book may be")
+    c.drawString(40, 78, "reproduced without permission. First edition.")
+    c.showPage()
+    c.setFont("Helvetica-Bold", 14)
+    c.drawString(40, height - 70, "Contents")
+    c.setFont("Helvetica", 10)
+    c.drawString(40, height - 100, "Chapter One .................................................. " + str(FRONT + 1))
+    c.drawString(40, height - 116, "Chapter Two .................................................. " + str(FRONT + 3))
+    c.showPage()
+
 def main(out):
     c = canvas.Canvas(out, pagesize=A5)
     c.setTitle("The Lighthouse Keeper")
     width, height = A5
-    for number, blocks in enumerate(PAGES, start=1):
+    front_matter(c, width, height)
+    for number, blocks in enumerate(PAGES, start=FRONT + 1):
         c.setFont("Helvetica-Oblique", 8)
         c.drawCentredString(width / 2, height - 30, "The Lighthouse Keeper · A Vaasi test story")
         y = height - 70

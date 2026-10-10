@@ -24,8 +24,10 @@ data class BookEntry(
     val sentences: Int,
     val addedAt: Long,
     val position: Int = 0,
+    /** Where the main text begins; listening "starts" here, past the title page and contents. */
+    val start: Int = 0,
 ) {
-    val progress: Float get() = if (sentences <= 1) 0f else position.toFloat() / (sentences - 1)
+    val progress: Float get() = if (sentences <= 1 || position <= start) 0f else position.toFloat() / (sentences - 1)
 }
 
 class NoTextException : Exception(
@@ -56,6 +58,7 @@ class Library(private val context: Context) {
                 sentences = o.getInt("sentences"),
                 addedAt = o.getLong("addedAt"),
                 position = positions.getInt(id, 0),
+                start = o.optInt("start", 0),
             )
         }
     } catch (e: Exception) {
@@ -71,6 +74,7 @@ class Library(private val context: Context) {
                 put("pages", e.pages)
                 put("sentences", e.sentences)
                 put("addedAt", e.addedAt)
+                put("start", e.start)
             })
         }
         val tmp = File(indexFile.path + ".tmp")
@@ -81,20 +85,34 @@ class Library(private val context: Context) {
     fun entry(id: String): BookEntry? = _books.value.firstOrNull { it.id == id }
 
     suspend fun load(id: String): Book = withContext(Dispatchers.IO) {
-        Book.fromJson(File(booksDir, "$id.json").readText())
+        val file = File(booksDir, "$id.json")
+        val book = Book.fromJson(file.readText())
+        if (!book.hasContents) {
+            // Added before Vaasi found chapters: save them, and skip the front matter if
+            // listening hasn't started yet.
+            file.writeText(book.toJson())
+            withContext(Dispatchers.Main) {
+                _books.update { list -> list.map { if (it.id == id) it.copy(start = book.start) else it } }
+                writeIndex(_books.value)
+                if (positions.getInt(id, 0) == 0 && book.start > 0) savePosition(id, book.start)
+            }
+        }
+        book
     }
 
     /** Reads a PDF's text and adds it to the library. Reports progress as (page, pages). */
     suspend fun import(uri: Uri, onProgress: (Int, Int) -> Unit): BookEntry = withContext(Dispatchers.IO) {
         val name = displayName(uri)
-        val (pdfTitle, pages) = PdfText.extract(context, uri, onProgress)
-        val title = pdfTitle?.takeIf { it.isNotBlank() && it.length in 3..120 && !looksLikeFileName(it) }
+        val pdf = PdfText.extract(context, uri, onProgress)
+        val title = pdf.title?.takeIf { it.isNotBlank() && it.length in 3..120 && !looksLikeFileName(it) }
             ?: name ?: "Untitled"
         val id = UUID.randomUUID().toString()
-        val book = Book.fromPages(id, title, pages)
+        val book = Book.fromPages(id, title, pdf.pages, pdf.outline)
         if (book.paragraphs.sumOf { p -> p.sentences.sumOf { it.count(Char::isLetter) } } < 20) throw NoTextException()
         File(booksDir, "$id.json").writeText(book.toJson())
-        val entry = BookEntry(id, title, book.pages, book.sentenceCount, System.currentTimeMillis())
+        // Begin at the introduction or first chapter, not the title page and contents.
+        positions.edit { putInt(id, book.start) }
+        val entry = BookEntry(id, title, book.pages, book.sentenceCount, System.currentTimeMillis(), book.start, book.start)
         _books.update { listOf(entry) + it }
         writeIndex(_books.value)
         entry

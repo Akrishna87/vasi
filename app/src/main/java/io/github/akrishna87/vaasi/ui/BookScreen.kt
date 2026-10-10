@@ -1,5 +1,7 @@
 package io.github.akrishna87.vaasi.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -42,6 +44,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Slider
@@ -96,6 +99,7 @@ fun BookScreen(vm: AppViewModel, bookId: String, onBack: () -> Unit, onVoices: (
     var menu by remember { mutableStateOf(false) }
     var confirmExport by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var showContents by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -105,6 +109,7 @@ fun BookScreen(vm: AppViewModel, bookId: String, onBack: () -> Unit, onVoices: (
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") }
                 },
                 actions = {
+                    if (b != null) TextButton(onClick = { showContents = true }) { Text("Contents") }
                     Box {
                         IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, contentDescription = "More") }
                         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
@@ -156,6 +161,17 @@ fun BookScreen(vm: AppViewModel, bookId: String, onBack: () -> Unit, onVoices: (
         }
     }
 
+    if (showContents && b != null) {
+        ContentsSheet(
+            book = b,
+            current = current,
+            onDismiss = { showContents = false },
+            onChoose = { sentence ->
+                showContents = false
+                Reader.seek(context, bookId, sentence)
+            },
+        )
+    }
     if (confirmExport) {
         AlertDialog(
             onDismissRequest = { confirmExport = false },
@@ -337,7 +353,15 @@ private fun PlayerPanel(
             val status = when {
                 isCurrent && reader.error != null -> reader.error
                 playing && reader.waiting -> "Getting the voice ready…"
-                else -> "Page ${book.pageOf(shown)} of ${book.pages} · ${percent(shown, total)}%"
+                // Before listening starts, say where it will begin when that isn't the first page.
+                !isCurrent && !dragging && book.start > 0 && current == book.start ->
+                    "Starts at “${placeName(book, current)}”, past the title page and contents. " +
+                        "Tap Contents to start elsewhere."
+                else -> listOfNotNull(
+                    book.chapterAt(shown)?.title?.let { if (it.length > 32) it.take(31) + "…" else it },
+                    "Page ${book.pageOf(shown)} of ${book.pages}",
+                    "${percent(shown, total)}%",
+                ).joinToString(" · ")
             }
             Text(
                 status,
@@ -402,4 +426,66 @@ val SPEEDS = listOf(0.75f, 0.9f, 1.0f, 1.1f, 1.25f, 1.4f, 1.6f)
 fun speedLabel(speed: Float): String {
     val s = String.format(Locale.US, "%.2f", speed).trimEnd('0').trimEnd('.')
     return "$s×"
+}
+
+private fun placeName(book: Book, sentence: Int): String {
+    val name = book.chapters.firstOrNull { it.sentence == sentence }?.title ?: book.sentence(sentence)
+    return if (name.length > 40) name.take(39) + "…" else name
+}
+
+/** The chapters to jump to, plus the very beginning (title page, contents) of the PDF. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ContentsSheet(book: Book, current: Int, onDismiss: () -> Unit, onChoose: (Int) -> Unit) {
+    val here = book.chapterAt(current)
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Palette.Elevated) {
+        Text(
+            "Contents",
+            style = MaterialTheme.typography.titleLarge,
+            modifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 8.dp),
+        )
+        LazyColumn(Modifier.fillMaxWidth(), contentPadding = PaddingValues(bottom = 32.dp)) {
+            item {
+                ContentsRow(
+                    title = "Beginning of the PDF",
+                    detail = if (book.start > 0) "Title page, copyright and contents" else "Page 1",
+                    selected = false,
+                    onClick = { onChoose(0) },
+                )
+            }
+            items(book.chapters.size) { i ->
+                val chapter = book.chapters[i]
+                ContentsRow(
+                    title = chapter.title,
+                    detail = "Page ${book.pageOf(chapter.sentence)}" + if (chapter.sentence == book.start && book.start > 0) " · where reading starts" else "",
+                    selected = chapter == here,
+                    onClick = { onChoose(chapter.sentence) },
+                )
+            }
+            if (book.chapters.isEmpty()) {
+                item {
+                    Text(
+                        "Vaasi couldn't find chapters in this PDF. Tap a sentence in the text to start reading there.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Palette.SubText,
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ContentsRow(title: String, detail: String, selected: Boolean, onClick: () -> Unit) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .background(if (selected) Palette.Amber.copy(alpha = 0.14f) else Palette.Elevated)
+            .padding(horizontal = 24.dp, vertical = 12.dp),
+    ) {
+        Text(title, style = MaterialTheme.typography.titleMedium, color = if (selected) Palette.Amber else Palette.Text)
+        Text(detail, style = MaterialTheme.typography.bodySmall, color = Palette.SubText)
+    }
 }

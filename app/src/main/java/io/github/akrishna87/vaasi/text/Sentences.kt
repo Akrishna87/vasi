@@ -16,6 +16,8 @@ object Sentences {
         "hon", "gov", "sen", "rep", "al",
     )
 
+    private val numbering = Regex("\\d{1,3}(?:\\.\\d{1,3})*|[IVXLC]{1,6}")
+
     private val closers = setOf('"', '\'', '”', '’', ')', ']', '»')
 
     /** Splits a paragraph into sentences, each at most [MAX_CHARS] long where possible. */
@@ -62,6 +64,8 @@ object Sentences {
         val word = text.substring(j, dot)
         if (word.isEmpty()) return false
         if (word.length == 1 && word[0].isUpperCase()) return true // an initial: "J. R. R. Tolkien"
+        // A section number opening a heading: "1. Introduction", "2.3. Results", "IV. Methods".
+        if (text.substring(sentenceStart, j).isBlank() && numbering.matches(word)) return true
         return word.lowercase() in abbreviations
     }
 
