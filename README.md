@@ -79,7 +79,6 @@ PDF ──PdfBox──▶ page text ──TextCleaner──▶ paragraphs ──
 ## Building
 
 ```
-cd vaasi-android
 ./gradlew assembleRelease
 ```
 
