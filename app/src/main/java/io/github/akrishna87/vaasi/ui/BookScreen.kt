@@ -244,7 +244,8 @@ private fun ExportBanner(export: Export.State, bookId: String, context: android.
 
 @Composable
 private fun BookText(book: Book, current: Int, onTap: (Int) -> Unit) {
-    val list = rememberLazyListState()
+    // Open at the sentence being read (or where reading will start), not at the title page.
+    val list = rememberLazyListState(initialFirstVisibleItemIndex = book.paragraphOf(current))
     val dragged by list.interactionSource.collectIsDraggedAsState()
     var follow by remember { mutableStateOf(true) }
     val paragraph = book.paragraphOf(current)
