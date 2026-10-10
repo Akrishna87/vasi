@@ -57,6 +57,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Reads a book aloud in the background. A producer has the voice speak the coming sentences
@@ -316,7 +317,9 @@ class ReaderService : Service() {
     /** Streams the clips to the speaker, keeping the shown sentence in step with the voice. */
     private suspend fun play(b: Book, clips: ReceiveChannel<Clip>) = coroutineScope {
         val marks = ArrayList<Pair<Long, Int>>() // (first frame, sentence), in order
-        var written = 0L
+        // Frames handed to the track so far, counted as each chunk goes in (not per clip), so
+        // the track is only "waiting for the voice" once it has really played all of them.
+        val written = AtomicLong(0)
         var audio: AudioTrack? = null
         var ticker: Job? = null
         try {
@@ -327,22 +330,18 @@ class ReaderService : Service() {
                         track = t
                         if (!paused) t.play()
                     }
-                    ticker = launch(Dispatchers.Main) { follow(b, t, marks) { written } }
+                    ticker = launch(Dispatchers.Main) { follow(b, t, marks) { written.get() } }
                 }
-                synchronized(marks) { marks += written to clip.sentence }
-                writeAll(t, clip.speech.samples)
-                written += clip.speech.samples.size
-                if (clip.pauseMs > 0) {
-                    val silence = FloatArray(clip.speech.sampleRate * clip.pauseMs / 1000)
-                    writeAll(t, silence)
-                    written += silence.size
-                }
+                synchronized(marks) { marks += written.get() to clip.sentence }
+                writeAll(t, clip.speech.samples, written)
+                if (clip.pauseMs > 0) writeAll(t, FloatArray(clip.speech.sampleRate * clip.pauseMs / 1000), written)
             }
             val t = audio ?: return@coroutineScope
             // Let the last words play out. A buffer of silence after them makes sure the track
             // starts even when the whole book was shorter than its start threshold.
-            writeAll(t, FloatArray(t.bufferSizeInFrames))
-            while (head(t) < written) delay(100)
+            val end = written.get()
+            writeAll(t, FloatArray(t.bufferSizeInFrames), AtomicLong())
+            while (head(t) < end) delay(100)
         } finally {
             ticker?.cancel()
             releaseTrack()
@@ -399,7 +398,7 @@ class ReaderService : Service() {
     }
 
     /** Writes without blocking, so pausing or skipping never leaves a thread stuck in the track. */
-    private suspend fun writeAll(t: AudioTrack, samples: FloatArray) {
+    private suspend fun writeAll(t: AudioTrack, samples: FloatArray, written: AtomicLong) {
         var offset = 0
         while (offset < samples.size) {
             currentCoroutineContext().ensureActive()
@@ -409,6 +408,7 @@ class ReaderService : Service() {
             }
             if (n < 0) throw IOException("The speaker stopped working (error $n)")
             offset += n
+            written.addAndGet(n.toLong())
             if (n == 0) delay(25)
         }
     }
