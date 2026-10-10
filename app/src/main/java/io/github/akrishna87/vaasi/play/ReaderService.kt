@@ -35,6 +35,9 @@ import io.github.akrishna87.vaasi.VoiceChoice
 import io.github.akrishna87.vaasi.app
 import io.github.akrishna87.vaasi.text.Book
 import io.github.akrishna87.vaasi.text.Segment
+import io.github.akrishna87.vaasi.text.Sentences
+import io.github.akrishna87.vaasi.tts.Expression
+import io.github.akrishna87.vaasi.tts.Prosody
 import io.github.akrishna87.vaasi.tts.Speech
 import io.github.akrishna87.vaasi.tts.Tts
 import kotlinx.coroutines.CancellationException
@@ -224,7 +227,7 @@ class ReaderService : Service() {
         releaseWakeLock()
         unregisterNoisy()
         book = null
-        Reader.publish { Reader.State(error = it.error) }
+        Reader.publish { Reader.State(error = it.error, slow = it.slow) }
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
@@ -239,6 +242,7 @@ class ReaderService : Service() {
             return
         }
         val speed = app.settings.settings.value.speed
+        val expressive = app.settings.settings.value.expressive
         stale = false
         val previous = job
         job = scope.launch {
@@ -253,7 +257,7 @@ class ReaderService : Service() {
             Reader.publish { it.copy(sentence = index, playing = true, waiting = true, error = null) }
             app.library.savePosition(b.id, index)
             try {
-                read(b, choice, speed, index)
+                read(b, choice, speed, expressive, index)
                 // The end of the book.
                 app.library.savePosition(b.id, b.sentenceCount - 1)
                 releaseWakeLock()
@@ -273,19 +277,31 @@ class ReaderService : Service() {
         }
     }
 
-    private suspend fun read(b: Book, choice: VoiceChoice, speed: Float, from: Int) = coroutineScope {
+    private suspend fun read(b: Book, choice: VoiceChoice, speed: Float, expressive: Boolean, from: Int) = coroutineScope {
         val dir = app.packs.dir(choice.pack)
-        val clips = Channel<Clip>(capacity = 3)
+        // Speak several sentences ahead, so a slow moment doesn't leave a gap.
+        val clips = Channel<Clip>(capacity = 6)
         launch(Dispatchers.Default) {
             try {
                 for (i in from until b.sentenceCount) {
-                    val parts = if (choice.dialogue != null) b.segments[i] else listOf(Segment(b.sentence(i), false))
+                    var parts = if (choice.dialogue != null || expressive) b.segments[i] else listOf(Segment(b.sentence(i), false))
+                    var moods = if (expressive) Expression.prosody(parts) else parts.map { Prosody.Plain }
+                    if (i == from) {
+                        // Start talking sooner: say the first clause of a long opening sentence on its own.
+                        val first = Sentences.firstBreath(parts[0].text)
+                        if (first.size > 1) {
+                            parts = first.map { Segment(it, parts[0].quoted) } + parts.drop(1)
+                            moods = first.map { moods[0] } + moods.drop(1)
+                        }
+                    }
                     for ((k, part) in parts.withIndex()) {
                         val voice = if (part.quoted) choice.dialogue ?: choice.narrator else choice.narrator
-                        val speech = Tts.speak(dir, choice.pack, voice, part.text, speed)
+                        val mood = moods[k]
+                        val speech = Tts.speak(dir, choice.pack, voice, part.text, Expression.voiceSpeed(mood, speed))
                         if (speech.samples.isEmpty()) continue
+                        val samples = Expression.apply(speech.samples, speech.sampleRate, mood)
                         val endOfParagraph = k == parts.lastIndex && b.isLastInParagraph(i)
-                        clips.send(Clip(i, speech, if (endOfParagraph) 450 else 0))
+                        clips.send(Clip(i, Speech(samples, speech.sampleRate), if (endOfParagraph) 450 else 0))
                     }
                 }
                 clips.close()
@@ -335,6 +351,8 @@ class ReaderService : Service() {
 
     private suspend fun follow(b: Book, t: AudioTrack, marks: List<Pair<Long, Int>>, written: () -> Long) {
         var shown = -1
+        var playingTicks = 0
+        var starvedTicks = 0
         while (currentCoroutineContext().isActive) {
             val head = head(t)
             val sentence = synchronized(marks) { marks.lastOrNull { it.first <= head }?.second }
@@ -346,6 +364,15 @@ class ReaderService : Service() {
             val starved = !paused && head >= written() - 1
             if (Reader.state.value.waiting != starved && Reader.state.value.playing) {
                 Reader.publish { it.copy(waiting = starved) }
+            }
+            // After half a minute of listening, see whether the voice keeps up on this phone.
+            if (!paused && head > 0) {
+                playingTicks++
+                if (starved) starvedTicks++
+                if (playingTicks > 250 && starvedTicks * 4 > playingTicks && !Reader.state.value.slow) {
+                    Log.i(TAG, "The voice can't keep up: waited $starvedTicks of $playingTicks ticks")
+                    Reader.publish { it.copy(slow = true) }
+                }
             }
             delay(120)
         }

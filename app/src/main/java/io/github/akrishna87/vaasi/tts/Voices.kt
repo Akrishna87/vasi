@@ -53,7 +53,8 @@ object VoicePacks {
     val compact = VoicePack(
         id = "compact",
         title = "Compact",
-        summary = "11 voices · quick to download and fast on any phone",
+        summary = "11 voices · a smaller download, but about three times slower to speak than Studio, " +
+            "so many phones pause between sentences",
         url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-en-v0_19.tar.bz2",
         sizeMb = 99,
         defaultVoice = "af_bella",
@@ -77,7 +78,7 @@ object VoicePacks {
     val studio = VoicePack(
         id = "studio",
         title = "Studio",
-        summary = "28 voices · Kokoro's newest, most natural model · best on recent phones",
+        summary = "Recommended · 28 voices · Kokoro's newest, most natural model, and the quickest to speak",
         url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_0.tar.bz2",
         sizeMb = 330,
         defaultVoice = "af_heart",
@@ -114,7 +115,8 @@ object VoicePacks {
         ),
     )
 
-    val all = listOf(compact, studio)
+    /** Best first: Studio both sounds better and speaks faster (about 0.5 s of work per second of speech). */
+    val all = listOf(studio, compact)
 
     fun byId(id: String?): VoicePack? = all.firstOrNull { it.id == id }
 

@@ -21,6 +21,9 @@ import io.github.akrishna87.vaasi.MainActivity
 import io.github.akrishna87.vaasi.R
 import io.github.akrishna87.vaasi.app
 import io.github.akrishna87.vaasi.text.Segment
+import io.github.akrishna87.vaasi.tts.Expression
+import io.github.akrishna87.vaasi.tts.Prosody
+import io.github.akrishna87.vaasi.tts.Speech
 import io.github.akrishna87.vaasi.tts.Tts
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -112,6 +115,7 @@ class ExportService : Service() {
             return
         }
         val speed = app.settings.settings.value.speed
+        val expressive = app.settings.settings.value.expressive
         wakeLock = getSystemService(PowerManager::class.java)
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Vaasi:export")
             .apply { acquire(12 * 60 * 60 * 1000L) }
@@ -119,23 +123,28 @@ class ExportService : Service() {
         try {
             val book = app.library.load(bookId)
             val dir = app.packs.dir(choice.pack)
-            Export._state.value = Export.State.Working(bookId, title, 0, book.sentenceCount)
+            // Like listening, the recording starts at the main text, past the title page and contents.
+            val first = book.start.coerceIn(0, book.sentenceCount - 1)
+            val total = book.sentenceCount - first
+            Export._state.value = Export.State.Working(bookId, title, 0, total)
             var writer: AacWriter? = null
             try {
-                for (i in 0 until book.sentenceCount) {
-                    val parts = if (choice.dialogue != null) book.segments[i] else listOf(Segment(book.sentence(i), false))
-                    for (part in parts) {
+                for (i in first until book.sentenceCount) {
+                    val parts = if (choice.dialogue != null || expressive) book.segments[i] else listOf(Segment(book.sentence(i), false))
+                    val moods = if (expressive) Expression.prosody(parts) else parts.map { Prosody.Plain }
+                    for ((k, part) in parts.withIndex()) {
                         val voice = if (part.quoted) choice.dialogue ?: choice.narrator else choice.narrator
-                        val speech = Tts.speak(dir, choice.pack, voice, part.text, speed)
-                        if (speech.samples.isEmpty()) continue
+                        val spoken = Tts.speak(dir, choice.pack, voice, part.text, Expression.voiceSpeed(moods[k], speed))
+                        if (spoken.samples.isEmpty()) continue
+                        val speech = Speech(Expression.apply(spoken.samples, spoken.sampleRate, moods[k]), spoken.sampleRate)
                         withContext(Dispatchers.IO) {
                             val w = writer ?: AacWriter(temp, speech.sampleRate).also { writer = it }
                             w.write(speech.samples)
                         }
                     }
                     if (book.isLastInParagraph(i)) withContext(Dispatchers.IO) { writer?.silence(450) }
-                    Export._state.value = Export.State.Working(bookId, title, i + 1, book.sentenceCount)
-                    if (i % 5 == 0) notifyProgress(title, i + 1, book.sentenceCount)
+                    Export._state.value = Export.State.Working(bookId, title, i + 1 - first, total)
+                    if (i % 5 == 0) notifyProgress(title, i + 1 - first, total)
                     currentCoroutineContext().ensureActive()
                 }
                 withContext(Dispatchers.IO) { writer?.finish() }

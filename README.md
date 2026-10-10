@@ -32,13 +32,27 @@ download nothing goes to the internet, and nothing you listen to leaves the phon
 
 ## Voice packs
 
-| Pack    | Download | Voices | Notes |
-|---------|----------|--------|-------|
-| Compact | ~99 MB   | 11     | Kokoro v0.19, int8. Quick on any phone. |
-| Studio  | ~330 MB  | 28     | Kokoro v1.0. The most natural voices (Heart, Bella, Emma…), best on a recent phone. |
+| Pack    | Download | Voices | Speed* | Notes |
+|---------|----------|--------|--------|-------|
+| **Studio** (recommended) | ~330 MB | 28 | 0.45–0.5 | Kokoro v1.0. The most natural voices (Heart, Bella, Emma…) and the quickest to speak. |
+| Compact | ~99 MB | 11 | 0.7–1.4 | Kokoro v0.19, int8. Smaller, but its int8 maths is slow on phone CPUs, so many phones pause between sentences. |
+
+\* Seconds of work per second of speech with 4 threads, measured on GitHub's ARM (Neoverse-N2)
+and x86 runners by `bench/` on the `claude/voice-bench` branch. Under 1 means the voice keeps
+ahead of playback; phone cores are usually somewhat slower than these.
 
 Both are downloaded from sherpa-onnx's GitHub releases by Android's download manager, so a
-download carries on if you leave the app.
+download carries on if you leave the app. The voice is loaded as soon as a book is opened, and
+the first clause of the opening sentence is spoken on its own so listening starts quickly.
+
+## Expressive reading
+
+Kokoro has no emotion control, so Vaasi reads the mood of each sentence (from its words,
+"!" and capitals, and dialogue tags such as *she whispered* or *he shouted*) and delivers it
+through pace, pitch, loudness and pauses: a little faster and brighter when happy or excited,
+slower and lower when sad, quieter for a whisper, louder for a shout. Speech in quotation marks
+is acted fully; narration is only lightly coloured. It's on by default and can be turned off in
+Voices. The logic is in `tts/Expression.kt`.
 
 ## Install
 

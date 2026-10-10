@@ -13,6 +13,7 @@ import io.github.akrishna87.vaasi.text.Book
 import io.github.akrishna87.vaasi.tts.Tts
 import io.github.akrishna87.vaasi.tts.Voice
 import io.github.akrishna87.vaasi.tts.VoicePack
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -70,17 +71,39 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (_importing.value is ImportState.Failed) _importing.value = null
     }
 
+    private val _bookError = MutableStateFlow<String?>(null)
+    /** Why the book on screen couldn't be opened, if it couldn't. */
+    val bookError: StateFlow<String?> = _bookError
+
     fun open(id: String) {
         if (_book.value?.id == id) return
         _book.value = null
+        _bookError.value = null
         viewModelScope.launch {
-            _book.value = try {
-                app.library.load(id)
-            } catch (e: Exception) {
-                null
+            try {
+                _book.value = app.library.load(id)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: OutOfMemoryError) {
+                _bookError.value = "This PDF is too big to open on this phone."
+            } catch (e: Throwable) {
+                _bookError.value = "Couldn't open this PDF (${e.message ?: e.javaClass.simpleName}). Try removing it and adding it again."
+            }
+            // Load the voice now, so pressing play doesn't wait for it.
+            choice.value?.let { c ->
+                launch {
+                    try {
+                        Tts.warmUp(app.packs.dir(c.pack), c.pack)
+                    } catch (e: Throwable) {
+                        if (e is CancellationException) throw e
+                        // Reading reports any problem with the voice when it starts.
+                    }
+                }
             }
         }
     }
+
+    fun setExpressive(on: Boolean) = changeSettings { it.copy(expressive = on) }
 
     fun deleteBook(id: String) {
         if (Reader.state.value.bookId == id) Reader.stop()

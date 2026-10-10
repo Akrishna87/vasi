@@ -27,6 +27,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
@@ -111,6 +112,25 @@ fun VoicesScreen(vm: AppViewModel, onBack: () -> Unit, onPacks: () -> Unit) {
                     )
                     Spacer(Modifier.width(12.dp))
                     Text(speedLabel(speed), style = MaterialTheme.typography.titleMedium, modifier = Modifier.width(56.dp))
+                }
+            }
+            item {
+                SectionLabel("Expression")
+                Row(
+                    Modifier.fillMaxWidth().clickable { vm.setExpressive(!settings.expressive) },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Expressive reading", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            "Matches pace, pitch and loudness to the mood of the text: happy, sad, excited, " +
+                                "whispered or shouted (\"…,\" she whispered).",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Palette.SubText,
+                        )
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Switch(checked = settings.expressive, onCheckedChange = vm::setExpressive)
                 }
             }
             item {

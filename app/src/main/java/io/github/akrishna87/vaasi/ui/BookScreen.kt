@@ -100,6 +100,8 @@ fun BookScreen(vm: AppViewModel, bookId: String, onBack: () -> Unit, onVoices: (
     var confirmExport by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     var showContents by remember { mutableStateOf(false) }
+    var slowTipDismissed by remember { mutableStateOf(false) }
+    val bookError by vm.bookError.collectAsState()
 
     Scaffold(
         topBar = {
@@ -152,10 +154,23 @@ fun BookScreen(vm: AppViewModel, bookId: String, onBack: () -> Unit, onVoices: (
         },
     ) { padding ->
         if (b == null) {
-            Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+            Box(Modifier.fillMaxSize().padding(padding).padding(24.dp), contentAlignment = Alignment.Center) {
+                val error = bookError
+                if (error != null) {
+                    Text(error, style = MaterialTheme.typography.bodyLarge, color = Palette.SubText)
+                } else {
+                    CircularProgressIndicator()
+                }
+            }
         } else {
             Column(Modifier.padding(padding)) {
                 ExportBanner(export, bookId, context)
+                if (isCurrent && reader.slow && !slowTipDismissed) {
+                    SlowTip(
+                        compact = choice?.pack?.id == "compact",
+                        onDismiss = { slowTipDismissed = true },
+                    )
+                }
                 BookText(b, current, onTap = { Reader.seek(context, bookId, it) })
             }
         }
@@ -488,5 +503,28 @@ private fun ContentsRow(title: String, detail: String, selected: Boolean, onClic
     ) {
         Text(title, style = MaterialTheme.typography.titleMedium, color = if (selected) Palette.Amber else Palette.Text)
         Text(detail, style = MaterialTheme.typography.bodySmall, color = Palette.SubText)
+    }
+}
+
+/** Shown when the voice keeps falling behind playback on this phone. */
+@Composable
+private fun SlowTip(compact: Boolean, onDismiss: () -> Unit) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = Palette.Elevated2),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        Row(Modifier.padding(start = 16.dp, top = 10.dp, bottom = 10.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "This phone takes a little longer to make the voice than to play it, so there are short pauses. " +
+                    if (compact) {
+                        "The Studio voices speak about three times faster, and sound better too (Voices → Voice packs)."
+                    } else {
+                        "Use Save as audio file (in the ⋮ menu) to prepare the whole PDF ahead and listen without pauses."
+                    },
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, contentDescription = "Dismiss") }
+        }
     }
 }

@@ -54,6 +54,16 @@ class SentencesTest {
     }
 
     @Test
+    fun cutsALongOpeningSentenceAfterItsFirstClause() {
+        val long = "He climbed the narrow stairs, counted the steps out of habit, and opened the shutters to the grey sea."
+        assertEquals(
+            listOf("He climbed the narrow stairs,", "counted the steps out of habit, and opened the shutters to the grey sea."),
+            Sentences.firstBreath(long),
+        )
+        assertEquals(listOf("A short one, really."), Sentences.firstBreath("A short one, really."))
+    }
+
+    @Test
     fun findsQuotedSpeech() {
         val segments = Sentences.segments(listOf("“Come here,” she said, “right now.”"))
         assertEquals(

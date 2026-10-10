@@ -71,15 +71,16 @@ wait_for welcome 'text="Choose a voice pack"' 30 "the welcome card isn't showing
 shot 1-welcome
 echo "PASS: welcome"
 
-echo "--- Downloading the Compact voices"
+echo "--- Downloading the Studio voices (the recommended pack)"
 tap welcome "Choose a voice pack"
 wait_for packs 'text="Voice packs"' 15 "the voice packs screen didn't open"
-tap packs "Download · 99 MB"
+grep -q "Recommended" "$OUT/packs.xml" || fail "Studio isn't marked as recommended"
+tap packs "Download · 330 MB"
 sleep 10
 dump packs-downloading
 shot 2-downloading
 show packs-downloading
-wait_for packs-done 'text="In use"' 900 "the Compact voices didn't finish downloading and unpacking"
+wait_for packs-done 'text="In use"' 900 "the Studio voices didn't finish downloading and unpacking"
 shot 3-installed
 echo "PASS: voices downloaded and unpacked"
 adb shell input keyevent KEYCODE_BACK
@@ -129,25 +130,26 @@ echo "PASS: pause"
 
 echo "--- Choosing another voice"
 dump paused
-tap paused "Bella"
+tap paused "Heart" # the Studio default
 wait_for voices 'text="Narrator"' 15 "the voices screen didn't open"
+grep -q 'text="Expressive reading"' "$OUT/voices.xml" || fail "there's no Expressive reading setting"
 # Voices near the top of the list, so no scrolling is needed.
-tap voices "Hear Michael"
+tap voices "Hear Bella"
 sleep 8
-tap voices "Michael"
+tap voices "Bella"
 sleep 2
-dump voices-michael
+dump voices-bella
 shot 7-voices
-tap voices-michael "Dialogue"
+tap voices-bella "Dialogue"
 sleep 2
 dump dialogue
-tap dialogue "Sarah"
+tap dialogue "Aoede"
 sleep 1
 shot 8-dialogue
 adb shell input keyevent KEYCODE_BACK
 sleep 2
 dump book-voice
-grep -q 'text="Michael"' "$OUT/book-voice.xml" || fail "the player doesn't show the new voice"
+grep -q 'text="Bella"' "$OUT/book-voice.xml" || fail "the player doesn't show the new voice"
 echo "PASS: voices"
 
 echo "--- Jumping to a chapter"

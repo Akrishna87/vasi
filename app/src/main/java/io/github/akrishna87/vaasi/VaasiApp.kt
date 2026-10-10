@@ -19,6 +19,8 @@ data class Settings(
     /** Second voice for quoted speech, or null to read everything in one voice. */
     val dialogueVoiceId: String? = null,
     val speed: Float = 1.0f,
+    /** Match pace, pitch and loudness to the mood of the text. */
+    val expressive: Boolean = true,
 )
 
 class SettingsStore(context: Context) {
@@ -30,6 +32,7 @@ class SettingsStore(context: Context) {
             voiceId = prefs.getString("voice", null),
             dialogueVoiceId = prefs.getString("dialogueVoice", null),
             speed = prefs.getFloat("speed", 1.0f),
+            expressive = prefs.getBoolean("expressive", true),
         ),
     )
     val settings: StateFlow<Settings> = _settings
@@ -42,6 +45,7 @@ class SettingsStore(context: Context) {
             putString("voice", s.voiceId)
             putString("dialogueVoice", s.dialogueVoiceId)
             putFloat("speed", s.speed)
+            putBoolean("expressive", s.expressive)
         }
     }
 }
@@ -69,7 +73,7 @@ class VaasiApp : Application() {
     /** The voices to use now, or null if no voice pack is installed yet. */
     fun voiceChoice(s: Settings = settings.settings.value): VoiceChoice? {
         val installed = packs.installed()
-        val pack = installed.firstOrNull { it.id == s.packId } ?: installed.lastOrNull() ?: return null
+        val pack = installed.firstOrNull { it.id == s.packId } ?: installed.firstOrNull() ?: return null
         val narrator = pack.voice(s.voiceId)
         val dialogue = s.dialogueVoiceId?.let { id -> pack.voices.firstOrNull { it.id == id } }
         return VoiceChoice(pack, narrator, dialogue)

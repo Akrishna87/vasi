@@ -47,6 +47,11 @@ object Tts {
             }
         }
 
+    /** Loads the model ahead of time, so pressing play doesn't wait for it. */
+    suspend fun warmUp(dir: File, pack: VoicePack) {
+        lock.withLock { withContext(Dispatchers.Default) { load(dir, pack) } }
+    }
+
     fun unload(pack: VoicePack) {
         if (loadedPack == pack.id && lock.tryLock()) {
             try {

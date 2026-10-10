@@ -84,6 +84,17 @@ object Sentences {
     }
 
     /**
+     * A long sentence cut after its first clause ("He climbed the stairs, | counted…"), so
+     * the voice can start speaking sooner when playback begins; short ones stay whole.
+     */
+    fun firstBreath(sentence: String): List<String> {
+        if (sentence.length <= 90) return listOf(sentence)
+        val cut = Regex("[,;:—–] ?").findAll(sentence).map { it.range.last + 1 }
+            .firstOrNull { it in 20..80 && sentence.length - it >= 20 } ?: return listOf(sentence)
+        return listOf(sentence.substring(0, cut).trim(), sentence.substring(cut).trim())
+    }
+
+    /**
      * Splits each sentence of a paragraph into narrated and quoted stretches. Quotes may run
      * across sentences ("Wait. Don't go," she said.), so the state carries over between them.
      */

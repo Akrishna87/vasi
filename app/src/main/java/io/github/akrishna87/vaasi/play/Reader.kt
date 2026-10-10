@@ -19,6 +19,8 @@ object Reader {
         /** Playing, but the voice hasn't caught up yet (loading the model or a slow phone). */
         val waiting: Boolean = false,
         val error: String? = null,
+        /** The voice often can't keep up with playback on this phone, so there are pauses. */
+        val slow: Boolean = false,
     )
 
     private val _state = MutableStateFlow(State())
