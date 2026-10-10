@@ -1,0 +1,40 @@
+name: Voice speed benchmark
+
+on:
+  push:
+    branches: ["claude/voice-bench"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04-arm, ubuntu-latest]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install sherpa-onnx==1.13.8 onnxruntime numpy
+      - name: Download the voice packs
+        run: |
+          mkdir -p packs && cd packs
+          base=https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models
+          curl -sSL $base/kokoro-int8-en-v0_19.tar.bz2 | tar xj && mv kokoro-int8-en-v0_19 compact
+          curl -sSL $base/kokoro-multi-lang-v1_0.tar.bz2 | tar xj && mv kokoro-multi-lang-v1_0 studio
+          ls -la compact studio
+      - name: Quantize Studio to int8
+        run: python3 bench/quantize.py packs/studio/model.onnx packs/studio/model.int8.onnx && ls -la packs/studio
+      - name: Benchmark
+        run: |
+          lscpu | grep -E "Model name|^CPU\(s\)"
+          python3 bench/tts_bench.py packs out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-${{ matrix.runner }}
+          path: out

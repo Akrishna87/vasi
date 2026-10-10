@@ -3,6 +3,9 @@ name: Vaasi APK
 on:
   push:
     branches: ["**"]
+    paths-ignore:
+      - "bench/**"
+      - ".github/workflows/bench.yml"
   workflow_dispatch:
 
 permissions:
@@ -71,6 +74,8 @@ jobs:
           path: smoke-out
 
   publish:
+    # Only main publishes the download; other branches just build and test.
+    if: github.ref == 'refs/heads/main'
     needs: [build, smoke-test]
     runs-on: ubuntu-latest
     permissions:
