@@ -1,4 +1,4 @@
-package io.github.akrishna87.vaasi.export
+package io.github.akrishna87.vaasi.convert
 
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
@@ -10,7 +10,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 /** Encodes mono speech into an AAC .m4a file with the phone's own encoder. */
-class AacWriter(file: File, private val sampleRate: Int) : Closeable {
+class AacWriter(file: File, private val sampleRate: Int, bitRate: Int = 48_000) : Closeable {
     private val codec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_AAC)
     private val muxer = MediaMuxer(file.path, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
     private val info = MediaCodec.BufferInfo()
@@ -21,7 +21,7 @@ class AacWriter(file: File, private val sampleRate: Int) : Closeable {
     init {
         val format = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_AAC, sampleRate, 1).apply {
             setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC)
-            setInteger(MediaFormat.KEY_BIT_RATE, 64_000)
+            setInteger(MediaFormat.KEY_BIT_RATE, bitRate)
             setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 16 * 1024)
         }
         codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)

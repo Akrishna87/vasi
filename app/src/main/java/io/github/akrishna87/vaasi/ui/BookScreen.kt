@@ -73,7 +73,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import io.github.akrishna87.vaasi.export.Export
+import io.github.akrishna87.vaasi.convert.AudioStatus
+import io.github.akrishna87.vaasi.convert.Convert
+import io.github.akrishna87.vaasi.convert.ConvertService
 import io.github.akrishna87.vaasi.play.Reader
 import io.github.akrishna87.vaasi.text.Book
 import java.util.Locale
@@ -85,7 +87,8 @@ fun BookScreen(vm: AppViewModel, bookId: String, onBack: () -> Unit, onVoices: (
     val book by vm.book.collectAsState()
     val reader by Reader.state.collectAsState()
     val books by vm.books.collectAsState()
-    val export by Export.state.collectAsState()
+    val audioMap by Convert.status.collectAsState()
+    val audio = audioMap[bookId] ?: AudioStatus()
     val choice by vm.choice.collectAsState()
     val settings by vm.settings.collectAsState()
     val context = LocalContext.current
@@ -116,11 +119,18 @@ fun BookScreen(vm: AppViewModel, bookId: String, onBack: () -> Unit, onVoices: (
                         IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, contentDescription = "More") }
                         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                             DropdownMenuItem(
-                                text = { Text("Save as audio file") },
+                                text = { Text("Save to Music") },
                                 leadingIcon = { Icon(Icons.Rounded.SaveAlt, null) },
-                                enabled = choice != null && export !is Export.State.Working,
+                                enabled = (choice != null || audio.conversion?.complete == true) && !audio.saving,
                                 onClick = { menu = false; confirmExport = true },
                             )
+                            if (audio.conversion != null) {
+                                DropdownMenuItem(
+                                    text = { Text("Delete the audio") },
+                                    leadingIcon = { Icon(Icons.Rounded.Delete, null) },
+                                    onClick = { menu = false; Convert.delete(context, bookId) },
+                                )
+                            }
                             DropdownMenuItem(
                                 text = { Text("Remove from Vaasi") },
                                 leadingIcon = { Icon(Icons.Rounded.Delete, null) },
@@ -164,7 +174,15 @@ fun BookScreen(vm: AppViewModel, bookId: String, onBack: () -> Unit, onVoices: (
             }
         } else {
             Column(Modifier.padding(padding)) {
-                ExportBanner(export, bookId, context)
+                AudioCard(
+                    audio = audio,
+                    currentSignature = choice?.let { Convert.signature(it, settings.expressive) },
+                    voiceName = choice?.narrator?.name,
+                    onConvert = { Convert.start(context, bookId) },
+                    onPause = { Convert.pause(context, bookId) },
+                    onReconvert = { Convert.reconvert(context, bookId) },
+                    onDismissSaved = { Convert.dismissSaved(bookId) },
+                )
                 if (isCurrent && reader.slow && !slowTipDismissed) {
                     SlowTip(
                         compact = choice?.pack?.id == "compact",
@@ -190,15 +208,19 @@ fun BookScreen(vm: AppViewModel, bookId: String, onBack: () -> Unit, onVoices: (
     if (confirmExport) {
         AlertDialog(
             onDismissRequest = { confirmExport = false },
-            title = { Text("Save as an audio file?") },
+            title = { Text("Save to Music?") },
             text = {
                 Text(
-                    "${choice?.narrator?.name ?: "The voice"} reads the whole PDF into an M4A file in Music/Vaasi, " +
-                        "so you can play it in any app. A long PDF can take a while; you can keep using your phone.",
+                    "Saves the audio as one M4A file in Music/Vaasi, to play in any app. " +
+                        if (audio.conversion?.complete == true) {
+                            "It's ready in a few seconds."
+                        } else {
+                            "Vaasi finishes converting the PDF first, then saves it."
+                        },
                 )
             },
             confirmButton = {
-                TextButton(onClick = { confirmExport = false; Export.start(context, bookId) }) { Text("Save") }
+                TextButton(onClick = { confirmExport = false; Convert.saveToMusic(context, bookId) }) { Text("Save") }
             },
             dismissButton = { TextButton(onClick = { confirmExport = false }) { Text("Cancel") } },
         )
@@ -216,42 +238,66 @@ fun BookScreen(vm: AppViewModel, bookId: String, onBack: () -> Unit, onVoices: (
     }
 }
 
+/** Where converting this PDF to audio stands, and what to do about it. */
 @Composable
-private fun ExportBanner(export: Export.State, bookId: String, context: android.content.Context) {
-    val text: String
-    var progress: Float? = null
-    var cancellable = false
-    when (export) {
-        is Export.State.Working -> {
-            if (export.bookId != bookId) return
-            text = "Saving as audio… ${percent(export.done, export.total + 1)}%"
-            progress = if (export.total > 0) export.done.toFloat() / export.total else 0f
-            cancellable = true
-        }
-        is Export.State.Done -> {
-            if (export.bookId != bookId) return
-            text = "Saved to ${export.location}"
-        }
-        is Export.State.Failed -> {
-            if (export.bookId != bookId) return
-            text = "Couldn't save the audio: ${export.message}"
-        }
-        Export.State.Idle -> return
-    }
+private fun AudioCard(
+    audio: AudioStatus,
+    currentSignature: String?,
+    voiceName: String?,
+    onConvert: () -> Unit,
+    onPause: () -> Unit,
+    onReconvert: () -> Unit,
+    onDismissSaved: () -> Unit,
+) {
+    val conversion = audio.conversion
+    val percent = ((conversion?.fraction ?: 0f) * 100).toInt()
+    val complete = conversion?.complete == true
+    val stale = complete && currentSignature != null && conversion?.signature != currentSignature
+    // Once it's converted (in the voice chosen), keep out of the way.
+    if (complete && !stale && audio.savedTo == null && !audio.saving && audio.error == null) return
     Card(
         colors = CardDefaults.cardColors(containerColor = Palette.Elevated2),
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
-        Row(Modifier.padding(start = 16.dp, top = 8.dp, bottom = 8.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(text, style = MaterialTheme.typography.bodyMedium)
-                progress?.let {
-                    Spacer(Modifier.height(6.dp))
-                    LinearProgressIndicator(progress = { it }, Modifier.fillMaxWidth())
+        Column(Modifier.padding(start = 16.dp, top = 12.dp, end = 8.dp, bottom = 8.dp)) {
+            val (title, detail) = when {
+                audio.saving -> "Saving to Music…" to null
+                audio.savedTo != null -> "Saved to ${audio.savedTo}" to null
+                audio.error != null -> audio.error to "What's converted so far is kept."
+                audio.active -> "Converting to audio · $percent%" to (
+                    listOfNotNull(audio.etaSeconds?.let { ConvertService.timeLeft(it) }).joinToString() +
+                        (if (audio.etaSeconds != null) ". " else "") +
+                        "You can listen now: Vaasi converts just ahead of you, and keeps going with the screen off."
+                    )
+                stale -> "Converted with ${conversion?.voiceName}" to "Convert it again with ${voiceName ?: "the voice you chose"}?"
+                conversion != null && conversion.converted > 0 -> "Converted $percent% so far" to "Continue to finish it."
+                else -> "Convert to audio" to
+                    "Turns the whole PDF into audio first, so it plays without pauses. It takes a while, " +
+                    "and carries on with the screen off."
+            }
+            Text(title, style = MaterialTheme.typography.titleSmall)
+            if (detail != null) {
+                Spacer(Modifier.height(2.dp))
+                Text(detail, style = MaterialTheme.typography.bodySmall, color = Palette.SubText)
+            }
+            if (audio.active || audio.saving) {
+                Spacer(Modifier.height(8.dp))
+                if (audio.saving) {
+                    LinearProgressIndicator(Modifier.fillMaxWidth().padding(end = 8.dp))
+                } else {
+                    LinearProgressIndicator(progress = { conversion?.fraction ?: 0f }, Modifier.fillMaxWidth().padding(end = 8.dp))
                 }
             }
-            IconButton(onClick = { if (cancellable) Export.cancel(context) else Export.dismiss() }) {
-                Icon(Icons.Rounded.Close, contentDescription = if (cancellable) "Cancel" else "Dismiss")
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                when {
+                    audio.saving -> Unit
+                    audio.savedTo != null -> TextButton(onClick = onDismissSaved) { Text("OK") }
+                    audio.active -> TextButton(onClick = onPause) { Text("Pause") }
+                    stale -> TextButton(onClick = onReconvert) { Text("Convert again") }
+                    conversion != null && conversion.converted > 0 && !complete -> TextButton(onClick = onConvert) { Text("Continue") }
+                    audio.error != null -> TextButton(onClick = onConvert) { Text("Continue") }
+                    !complete -> TextButton(onClick = onConvert) { Text("Convert") }
+                }
             }
         }
     }

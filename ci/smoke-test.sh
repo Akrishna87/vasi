@@ -100,6 +100,9 @@ grep -q 'towards the harbour' "$OUT/book.xml" || fail "the hyphenated 'har-bour'
 echo "PASS: the PDF's text is cleaned up"
 grep -q 'Starts at “Chapter One”' "$OUT/book.xml" || fail "it doesn't start at Chapter One, past the title page and contents"
 echo "PASS: starts at Chapter One"
+wait_for converting 'Converting to audio' 30 "adding the PDF didn't start converting it to audio"
+shot 4b-converting
+echo "PASS: converting to audio started by itself"
 
 echo "--- Reading aloud"
 tap book "Play"
@@ -128,6 +131,18 @@ tap back-in "Pause"
 wait_state "PAUSED|2" 15 "pausing didn't pause"
 echo "PASS: pause"
 
+echo "--- Waiting for the conversion to finish"
+end=$((SECONDS + 600))
+while :; do
+  dump converted
+  grep -q 'Converting to audio' "$OUT/converted.xml" || break
+  [ $SECONDS -lt $end ] || fail "converting the PDF to audio didn't finish"
+  sleep 5
+done
+grep -q 'Converted .*so far\|Converting stopped' "$OUT/converted.xml" && fail "the conversion stopped before the end"
+shot 6b-converted
+echo "PASS: converted to audio"
+
 echo "--- Choosing another voice"
 dump paused
 tap paused "Heart" # the Studio default
@@ -150,6 +165,7 @@ adb shell input keyevent KEYCODE_BACK
 sleep 2
 dump book-voice
 grep -q 'text="Bella"' "$OUT/book-voice.xml" || fail "the player doesn't show the new voice"
+grep -q 'text="Convert again"' "$OUT/book-voice.xml" || fail "it doesn't offer to convert again with the new voice"
 echo "PASS: voices"
 
 echo "--- Jumping to a chapter"
@@ -178,11 +194,11 @@ echo "--- Saving as an audio file"
 tap book-voice "More"
 sleep 1
 dump menu
-tap menu "Save as audio file"
+tap menu "Save to Music"
 sleep 1
 dump confirm
 tap confirm "Save"
-wait_for saved 'Saved to Music/Vaasi' 600 "saving the audio file didn't finish"
+wait_for saved 'Saved to Music/Vaasi' 120 "saving to Music didn't finish"
 shot 11-saved
 adb shell ls -l /sdcard/Music/Vaasi/ | tee "$OUT/music.txt"
 adb pull "/sdcard/Music/Vaasi/The Lighthouse Keeper.m4a" "$OUT/sample.m4a" || fail "the audio file isn't in Music/Vaasi"

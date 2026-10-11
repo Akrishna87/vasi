@@ -4,7 +4,7 @@
     <!-- Download the voice packs (the voices themselves run offline). -->
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!-- Keep reading in the background, and save long PDFs as audio files, with a notification. -->
+    <!-- Keep reading, and convert PDFs to audio, in the background with a notification. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
@@ -57,7 +57,7 @@
         </service>
 
         <service
-            android:name=".export.ExportService"
+            android:name=".convert.ConvertService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 

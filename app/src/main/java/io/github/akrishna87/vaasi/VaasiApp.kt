@@ -3,6 +3,7 @@ package io.github.akrishna87.vaasi
 import android.app.Application
 import android.content.Context
 import androidx.core.content.edit
+import io.github.akrishna87.vaasi.convert.Convert
 import io.github.akrishna87.vaasi.tts.Packs
 import io.github.akrishna87.vaasi.tts.Voice
 import io.github.akrishna87.vaasi.tts.VoicePack
@@ -68,6 +69,7 @@ class VaasiApp : Application() {
         library = Library(this)
         packs = Packs(this, scope)
         settings = SettingsStore(this)
+        Convert.init(this)
     }
 
     /** The voices to use now, or null if no voice pack is installed yet. */

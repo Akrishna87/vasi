@@ -15,6 +15,7 @@ import android.media.AudioFocusRequest
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioTrack
+import android.media.PlaybackParams
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -33,6 +34,8 @@ import io.github.akrishna87.vaasi.MainActivity
 import io.github.akrishna87.vaasi.R
 import io.github.akrishna87.vaasi.VoiceChoice
 import io.github.akrishna87.vaasi.app
+import io.github.akrishna87.vaasi.convert.AacReader
+import io.github.akrishna87.vaasi.convert.Convert
 import io.github.akrishna87.vaasi.text.Book
 import io.github.akrishna87.vaasi.text.Segment
 import io.github.akrishna87.vaasi.text.Sentences
@@ -49,6 +52,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
+import kotlinx.coroutines.channels.SendChannel
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -56,6 +61,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicLong
 
@@ -238,7 +244,7 @@ class ReaderService : Service() {
     private fun startFrom(index: Int) {
         val b = book ?: return
         val choice = app.voiceChoice()
-        if (choice == null) {
+        if (choice == null && !Convert.of(b.id).hasAudio) {
             Reader.publish { it.copy(playing = false, waiting = false, error = "Download a voice first") }
             return
         }
@@ -278,32 +284,19 @@ class ReaderService : Service() {
         }
     }
 
-    private suspend fun read(b: Book, choice: VoiceChoice, speed: Float, expressive: Boolean, from: Int) = coroutineScope {
-        val dir = app.packs.dir(choice.pack)
-        // Speak several sentences ahead, so a slow moment doesn't leave a gap.
+    private suspend fun read(b: Book, choice: VoiceChoice?, speed: Float, expressive: Boolean, from: Int) = coroutineScope {
+        val audio = Convert.of(b.id)
+        // A book converted to audio (or being converted) plays from its audio files.
+        val converted = audio.hasAudio || audio.active
+        if (audio.active && Convert.next() != b.id) Convert.start(this@ReaderService, b.id, first = true)
+        // Several sentences ahead, so a slow moment doesn't leave a gap.
         val clips = Channel<Clip>(capacity = 6)
         launch(Dispatchers.Default) {
             try {
-                for (i in from until b.sentenceCount) {
-                    var parts = if (choice.dialogue != null || expressive) b.segments[i] else listOf(Segment(b.sentence(i), false))
-                    var moods = if (expressive) Expression.prosody(parts) else parts.map { Prosody.Plain }
-                    if (i == from) {
-                        // Start talking sooner: say the first clause of a long opening sentence on its own.
-                        val first = Sentences.firstBreath(parts[0].text)
-                        if (first.size > 1) {
-                            parts = first.map { Segment(it, parts[0].quoted) } + parts.drop(1)
-                            moods = first.map { moods[0] } + moods.drop(1)
-                        }
-                    }
-                    for ((k, part) in parts.withIndex()) {
-                        val voice = if (part.quoted) choice.dialogue ?: choice.narrator else choice.narrator
-                        val mood = moods[k]
-                        val speech = Tts.speak(dir, choice.pack, voice, part.text, Expression.voiceSpeed(mood, speed))
-                        if (speech.samples.isEmpty()) continue
-                        val samples = Expression.apply(speech.samples, speech.sampleRate, mood)
-                        val endOfParagraph = k == parts.lastIndex && b.isLastInParagraph(i)
-                        clips.send(Clip(i, Speech(samples, speech.sampleRate), if (endOfParagraph) 450 else 0))
-                    }
+                if (converted) {
+                    playConverted(b, choice, expressive, from, clips)
+                } else {
+                    for (i in from until b.sentenceCount) speak(b, choice!!, expressive, i, speed, clips, firstBreath = i == from)
                 }
                 clips.close()
             } catch (e: Throwable) {
@@ -311,11 +304,109 @@ class ReaderService : Service() {
                 if (e is CancellationException) throw e
             }
         }
-        withContext(Dispatchers.IO) { play(b, clips) }
+        // Converted audio is made at normal speed; the speaker speeds it up without changing pitch.
+        withContext(Dispatchers.IO) { play(b, clips, trackSpeed = if (converted) speed else 1f) }
+    }
+
+    /** Has the voice speak sentence [i] now. */
+    private suspend fun speak(
+        b: Book, choice: VoiceChoice, expressive: Boolean, i: Int, speed: Float, clips: SendChannel<Clip>, firstBreath: Boolean,
+    ) {
+        val dir = app.packs.dir(choice.pack)
+        var parts = if (choice.dialogue != null || expressive) b.segments[i] else listOf(Segment(b.sentence(i), false))
+        var moods = if (expressive) Expression.prosody(parts) else parts.map { Prosody.Plain }
+        if (firstBreath) {
+            // Start talking sooner: say the first clause of a long opening sentence on its own.
+            val first = Sentences.firstBreath(parts[0].text)
+            if (first.size > 1) {
+                parts = first.map { Segment(it, parts[0].quoted) } + parts.drop(1)
+                moods = first.map { moods[0] } + moods.drop(1)
+            }
+        }
+        for ((k, part) in parts.withIndex()) {
+            val voice = if (part.quoted) choice.dialogue ?: choice.narrator else choice.narrator
+            val mood = moods[k]
+            val speech = Tts.speak(dir, choice.pack, voice, part.text, Expression.voiceSpeed(mood, speed))
+            if (speech.samples.isEmpty()) continue
+            val samples = Expression.apply(speech.samples, speech.sampleRate, mood)
+            val endOfParagraph = k == parts.lastIndex && b.isLastInParagraph(i)
+            clips.send(Clip(i, Speech(samples, speech.sampleRate), if (endOfParagraph) 450 else 0))
+        }
+    }
+
+    /**
+     * Plays the book's converted audio from sentence [from]. Where it isn't converted yet:
+     * if converting is under way, wait for it (it works just ahead of the listener);
+     * otherwise have the voice speak those sentences now.
+     */
+    private suspend fun playConverted(b: Book, choice: VoiceChoice?, expressive: Boolean, from: Int, clips: SendChannel<Clip>) {
+        val dir = Convert.dir(this, b.id)
+        var i = from
+        while (i < b.sentenceCount) {
+            val status = Convert.of(b.id)
+            val segment = status.conversion?.segmentFor(i)
+            when {
+                segment != null -> {
+                    val pieces = withContext(Dispatchers.IO) { sentencesOf(File(dir, segment.file), segment, i) }
+                    for ((sentence, samples) in pieces) clips.send(Clip(sentence, Speech(samples, Convert.SAMPLE_RATE), 0))
+                    i = segment.last + 1
+                }
+                status.active -> {
+                    val wanted = i
+                    Convert.status.first { m ->
+                        val s = m[b.id]
+                        s == null || s.conversion?.isConverted(wanted) == true || !s.active
+                    }
+                }
+                else -> {
+                    val c = choice ?: error("This part isn't converted yet. Download a voice to hear it.")
+                    speak(b, c, expressive, i, 1f, clips, firstBreath = false)
+                    i++
+                }
+            }
+        }
+    }
+
+    /** Decodes a segment from sentence [from] on, cut into one run of samples per sentence. */
+    private fun sentencesOf(file: File, segment: io.github.akrishna87.vaasi.convert.Segment, from: Int): List<Pair<Int, FloatArray>> {
+        val out = ArrayList<Pair<Int, FloatArray>>()
+        var sentence = from
+        val pending = ArrayList<FloatArray>()
+        fun flush() {
+            val size = pending.sumOf { it.size }
+            if (size > 0) {
+                val joined = FloatArray(size)
+                var at = 0
+                for (p in pending) {
+                    p.copyInto(joined, at)
+                    at += p.size
+                }
+                out += sentence to joined
+            }
+            pending.clear()
+        }
+        AacReader.decode(file, segment.startOf(from)) { chunk, position ->
+            var offset = 0
+            while (offset < chunk.size) {
+                val next = if (sentence < segment.last) segment.startOf(sentence + 1) else Long.MAX_VALUE
+                val room = next - (position + offset)
+                if (room <= 0) {
+                    flush()
+                    sentence++
+                    continue
+                }
+                val take = if (room >= chunk.size - offset) chunk.size - offset else room.toInt()
+                pending += chunk.copyOfRange(offset, offset + take)
+                offset += take
+            }
+            true
+        }
+        flush()
+        return out
     }
 
     /** Streams the clips to the speaker, keeping the shown sentence in step with the voice. */
-    private suspend fun play(b: Book, clips: ReceiveChannel<Clip>) = coroutineScope {
+    private suspend fun play(b: Book, clips: ReceiveChannel<Clip>, trackSpeed: Float) = coroutineScope {
         val marks = ArrayList<Pair<Long, Int>>() // (first frame, sentence), in order
         // Frames handed to the track so far, counted as each chunk goes in (not per clip), so
         // the track is only "waiting for the voice" once it has really played all of them.
@@ -326,13 +417,22 @@ class ReaderService : Service() {
             for (clip in clips) {
                 val t = audio ?: newTrack(clip.speech.sampleRate).also { t ->
                     audio = t
+                    if (trackSpeed != 1f) {
+                        try {
+                            t.playbackParams = PlaybackParams().setSpeed(trackSpeed).setPitch(1f)
+                        } catch (e: Exception) {
+                            Log.w(TAG, "This phone can't change the playback speed", e)
+                        }
+                    }
                     synchronized(trackLock) {
                         track = t
                         if (!paused) t.play()
                     }
                     ticker = launch(Dispatchers.Main) { follow(b, t, marks) { written.get() } }
                 }
-                synchronized(marks) { marks += written.get() to clip.sentence }
+                synchronized(marks) {
+                    if (marks.isEmpty() || marks.last().second != clip.sentence) marks += written.get() to clip.sentence
+                }
                 writeAll(t, clip.speech.samples, written)
                 if (clip.pauseMs > 0) writeAll(t, FloatArray(clip.speech.sampleRate * clip.pauseMs / 1000), written)
             }

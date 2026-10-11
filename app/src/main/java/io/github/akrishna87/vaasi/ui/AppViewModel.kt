@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import io.github.akrishna87.vaasi.Settings
 import io.github.akrishna87.vaasi.VaasiApp
 import io.github.akrishna87.vaasi.VoiceChoice
+import io.github.akrishna87.vaasi.convert.Convert
 import io.github.akrishna87.vaasi.play.Preview
 import io.github.akrishna87.vaasi.play.Reader
 import io.github.akrishna87.vaasi.text.Book
@@ -58,6 +59,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     _importing.value = ImportState.Reading("PDF", page, pages)
                 }
                 _importing.value = null
+                // Turn the whole PDF into audio straight away, so it plays without pauses.
+                if (app.voiceChoice() != null) Convert.start(getApplication(), entry.id)
                 opened(entry.id)
             } catch (e: Exception) {
                 _importing.value = ImportState.Failed(e.message ?: "Couldn't read that PDF")
@@ -108,6 +111,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun deleteBook(id: String) {
         if (Reader.state.value.bookId == id) Reader.stop()
         if (_book.value?.id == id) _book.value = null
+        Convert.delete(getApplication(), id)
         app.library.delete(id)
     }
 

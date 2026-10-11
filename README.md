@@ -26,8 +26,13 @@ download nothing goes to the internet, and nothing you listen to leaves the phon
   lock screen, in the notification and on headphones. It pauses when headphones are
   unplugged or a call comes in.
 - **Remembers where you stopped** in every PDF.
-- **Save as audio file**: reads the whole PDF into an `.m4a` file in `Music/Vaasi`, to
-  play in any music app or copy elsewhere.
+- **Converts the whole PDF to audio**: as soon as a PDF is added, Vaasi turns it into audio
+  in the background (screen off is fine), working just ahead of wherever you're listening, so
+  playback never has to wait for the voice. You can start listening straight away. It saves
+  after every few sentences, so an interrupted conversion carries on where it stopped. The
+  audio takes about 22 MB per hour (AAC, 48 kbps) and can be deleted from the ⋮ menu.
+- **Save to Music**: joins the converted audio into one `.m4a` in `Music/Vaasi`, to play in
+  any music app or copy elsewhere (seconds, once converted).
 - Speed from 0.6× to 1.8×. The speed changes how fast the voice speaks, not the pitch.
 
 ## Voice packs
@@ -87,7 +92,8 @@ PDF ──PdfBox──▶ page text ──TextCleaner──▶ paragraphs ──
   `Archive`), and the sherpa-onnx engine (`Tts`).
 - `play/`: the foreground `ReaderService` with its media session and notification, plus
   voice previews.
-- `export/`: `ExportService` and an AAC/M4A encoder.
+- `convert/`: `ConvertService` turns books into segment files (`Conversion` tracks which
+  sentences are in which file, and where), with the AAC encoder and decoder.
 - `ui/`: the Compose screens.
 
 ## Building

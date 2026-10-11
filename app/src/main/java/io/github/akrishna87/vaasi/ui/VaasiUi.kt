@@ -65,6 +65,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.akrishna87.vaasi.BookEntry
+import io.github.akrishna87.vaasi.convert.AudioStatus
+import io.github.akrishna87.vaasi.convert.Convert
 import io.github.akrishna87.vaasi.play.Reader
 import io.github.akrishna87.vaasi.tts.PackState
 import kotlinx.coroutines.flow.Flow
@@ -119,6 +121,7 @@ private fun LibraryScreen(vm: AppViewModel, onOpen: (String) -> Unit, onVoices: 
     val choice by vm.choice.collectAsState()
     val packs by vm.packStates.collectAsState()
     val reader by Reader.state.collectAsState()
+    val audio by Convert.status.collectAsState()
     var deleting by remember { mutableStateOf<BookEntry?>(null) }
 
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -178,7 +181,13 @@ private fun LibraryScreen(vm: AppViewModel, onOpen: (String) -> Unit, onVoices: 
                 }
             }
             items(books, key = { it.id }) { entry ->
-                BookCard(entry, reading = reader.bookId == entry.id, onOpen = { onOpen(entry.id) }, onDelete = { deleting = entry })
+                BookCard(
+                    entry,
+                    reading = reader.bookId == entry.id,
+                    audio = audio[entry.id],
+                    onOpen = { onOpen(entry.id) },
+                    onDelete = { deleting = entry },
+                )
             }
         }
     }
@@ -258,7 +267,7 @@ private fun ImportCard(state: ImportState, onDismiss: () -> Unit) {
 }
 
 @Composable
-private fun BookCard(entry: BookEntry, reading: Boolean, onOpen: () -> Unit, onDelete: () -> Unit) {
+private fun BookCard(entry: BookEntry, reading: Boolean, audio: AudioStatus?, onOpen: () -> Unit, onDelete: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
     Card(
         onClick = onOpen,
@@ -284,6 +293,11 @@ private fun BookCard(entry: BookEntry, reading: Boolean, onOpen: () -> Unit, onD
                     buildString {
                         append(if (entry.pages == 1) "1 page" else "${entry.pages} pages")
                         if (listened > 0) append(" · $listened% listened")
+                        val c = audio?.conversion
+                        when {
+                            audio?.active == true -> append(" · converting ${((c?.fraction ?: 0f) * 100).toInt()}%")
+                            c?.complete == true -> append(" · audio ready")
+                        }
                     },
                     color = Palette.SubText,
                     style = MaterialTheme.typography.bodySmall,

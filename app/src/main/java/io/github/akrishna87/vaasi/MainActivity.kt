@@ -15,6 +15,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.core.content.ContextCompat
 import androidx.core.content.IntentCompat
+import io.github.akrishna87.vaasi.convert.Convert
 import io.github.akrishna87.vaasi.ui.AppViewModel
 import io.github.akrishna87.vaasi.ui.AppScreens
 import io.github.akrishna87.vaasi.ui.VaasiTheme
@@ -35,7 +36,11 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
         )
         super.onCreate(savedInstanceState)
-        if (savedInstanceState == null) handle(intent)
+        if (savedInstanceState == null) {
+            handle(intent)
+            // Carry on converting PDFs that were cut short (the app was closed or the phone restarted).
+            if (app.voiceChoice() != null) Convert.resumePending(this)
+        }
         setContent {
             VaasiTheme {
                 AppScreens(vm, incoming.receiveAsFlow(), openPlaying.receiveAsFlow())
