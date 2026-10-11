@@ -270,7 +270,7 @@ private fun AudioCard(
                         "You can listen now: Vaasi converts just ahead of you, and keeps going with the screen off."
                     )
                 stale -> "Converted with ${conversion?.voiceName}" to "Convert it again with ${voiceName ?: "the voice you chose"}?"
-                conversion != null && conversion.converted > 0 -> "Converted $percent% so far" to "Continue to finish it."
+                conversion != null && conversion.converted > 0 -> "Converted $percent% so far" to "Continue converting to finish it."
                 else -> "Convert to audio" to
                     "Turns the whole PDF into audio first, so it plays without pauses. It takes a while, " +
                     "and carries on with the screen off."
@@ -292,11 +292,11 @@ private fun AudioCard(
                 when {
                     audio.saving -> Unit
                     audio.savedTo != null -> TextButton(onClick = onDismissSaved) { Text("OK") }
-                    audio.active -> TextButton(onClick = onPause) { Text("Pause") }
+                    audio.active -> TextButton(onClick = onPause) { Text("Pause converting") }
                     stale -> TextButton(onClick = onReconvert) { Text("Convert again") }
-                    conversion != null && conversion.converted > 0 && !complete -> TextButton(onClick = onConvert) { Text("Continue") }
-                    audio.error != null -> TextButton(onClick = onConvert) { Text("Continue") }
-                    !complete -> TextButton(onClick = onConvert) { Text("Convert") }
+                    conversion != null && conversion.converted > 0 && !complete -> TextButton(onClick = onConvert) { Text("Continue converting") }
+                    audio.error != null -> TextButton(onClick = onConvert) { Text("Continue converting") }
+                    !complete -> TextButton(onClick = onConvert) { Text("Convert to audio") }
                 }
             }
         }

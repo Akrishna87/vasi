@@ -151,7 +151,8 @@ class ConvertService : Service() {
             val reader = Reader.state.value
             val anchor = if (reader.bookId == id) reader.sentence else book.start
             val from = conversion!!.nextToConvert(anchor) ?: break
-            val end = conversion.runEnd(from, Convert.SEGMENT_SENTENCES)
+            // When the listener is waiting right here, make a short piece so they hear it sooner.
+            val end = conversion.runEnd(from, if (reader.bookId == id && from == anchor) 2 else Convert.SEGMENT_SENTENCES)
             val segment = convertRun(book, from, end, dir, packDir, choice, expressive)
             conversion = conversion.with(segment)
             Convert.save(this, id, conversion)
@@ -266,7 +267,7 @@ class ConvertService : Service() {
     // Android 15 limits how long this kind of background work may run in a day; when it says
     // stop, stop cleanly. What's converted is kept, and Continue picks it up.
     override fun onTimeout(startId: Int, fgsType: Int) {
-        current?.let { id -> Convert.update(id) { it.copy(error = "Android paused the conversion for now. Tap Continue to carry on.") } }
+        current?.let { id -> Convert.update(id) { it.copy(error = "Android paused the conversion for now. Tap Continue converting to carry on.") } }
         job?.cancel()
         finish()
     }
@@ -307,7 +308,7 @@ class ConvertService : Service() {
             .setOnlyAlertOnce(true)
             .setSilent(true)
             .setContentIntent(openApp())
-            .apply { if (pause != null) addAction(R.drawable.ic_pause, "Pause", pause) }
+            .apply { if (pause != null) addAction(R.drawable.ic_pause, "Pause converting", pause) }
             .build()
     }
 
