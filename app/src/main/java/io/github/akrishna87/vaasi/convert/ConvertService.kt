@@ -11,6 +11,7 @@ import android.content.pm.ServiceInfo
 import android.os.Environment
 import android.os.IBinder
 import android.os.PowerManager
+import android.os.SystemClock
 import android.provider.MediaStore
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -24,6 +25,7 @@ import io.github.akrishna87.vaasi.text.Book
 import io.github.akrishna87.vaasi.text.Segment as TextSegment
 import io.github.akrishna87.vaasi.tts.Expression
 import io.github.akrishna87.vaasi.tts.Prosody
+import io.github.akrishna87.vaasi.tts.ThreadTuner
 import io.github.akrishna87.vaasi.tts.Tts
 import io.github.akrishna87.vaasi.tts.VoicePacks
 import kotlinx.coroutines.CancellationException
@@ -50,6 +52,9 @@ class ConvertService : Service() {
     private var current: String? = null
     private var wakeLock: PowerManager.WakeLock? = null
 
+    /** Times the first pieces with a few thread counts, until the fastest for this phone is known. */
+    private var tuner: ThreadTuner? = null
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -60,6 +65,10 @@ class ConvertService : Service() {
                 setShowBadge(false)
             },
         )
+        if (app.settings.voiceThreads == null) {
+            val candidates = ThreadTuner.candidates(Runtime.getRuntime().availableProcessors(), Tts.defaultThreads())
+            if (candidates.size > 1) tuner = ThreadTuner(candidates)
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -153,7 +162,14 @@ class ConvertService : Service() {
             val from = conversion!!.nextToConvert(anchor) ?: break
             // When the listener is waiting right here, make a short piece so they hear it sooner.
             val end = conversion.runEnd(from, if (reader.bookId == id && from == anchor) 2 else Convert.SEGMENT_SENTENCES)
+            val trying = tuner?.next()
+            if (trying != null) {
+                Tts.threads = trying
+                Tts.warmUp(packDir, choice.pack) // loading the model isn't part of the timing
+            }
+            val started = SystemClock.elapsedRealtime()
             val segment = convertRun(book, from, end, dir, packDir, choice, expressive)
+            if (trying != null) timed(trying, SystemClock.elapsedRealtime() - started, segment.samples, id)
             conversion = conversion.with(segment)
             Convert.save(this, id, conversion)
             doneHere += end - from
@@ -167,6 +183,20 @@ class ConvertService : Service() {
             Convert.update(id) { it.copy(saveWhenDone = false) }
             saveToMusic(id)
         }
+    }
+
+    /** Notes how long a piece took with [threads], and settles on the fastest once all are timed. */
+    private fun timed(threads: Int, millis: Long, samples: Long, id: String) {
+        val t = tuner ?: return
+        // Another book being read aloud at the same time would share the voice and skew it.
+        val reader = Reader.state.value
+        if (reader.playing && reader.bookId != id) return
+        t.record(threads, millis / 1000.0, samples.toDouble() / Convert.SAMPLE_RATE)
+        val best = t.best ?: return
+        Log.i(TAG, "Voice speed by threads (seconds of work per second of speech): ${t.summary()}; using $best")
+        Tts.threads = best
+        app.settings.voiceThreads = best
+        tuner = null
     }
 
     /** Speaks sentences [from] until [end] into one segment file. */

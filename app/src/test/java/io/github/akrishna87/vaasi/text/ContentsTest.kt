@@ -87,4 +87,69 @@ class ContentsTest {
         assertEquals(b.chapters, copy.chapters)
         assertEquals("Introduction", copy.sentence(copy.start))
     }
+
+    /** An ebook laid out like a Simon & Schuster one: a mailing-list page first, contents without
+     * page numbers, and the copyright page at the back. */
+    private fun ebook(introduction: List<Paragraph>) = listOf(
+        p(2, "Thank you for downloading this Simon & Schuster ebook."),
+        p(2, "Get a FREE ebook when you join our mailing list.", "Plus, get updates on new releases, deals, and more."),
+        p(2, "CLICK HERE TO SIGN UP"),
+        p(3, "The Courage to Be Disliked"), p(3, "Ichiro Kishimi and Fumitake Koga"),
+        p(4, "Contents"), p(4, "Authors’ Note"), p(4, "Introduction"),
+        p(4, "THE FIRST NIGHT: Deny Trauma"), p(4, "THE SECOND NIGHT: All Problems Are Interpersonal Relationship Problems"),
+        p(5, "THE THIRD NIGHT: Discard Other People’s Tasks"), p(5, "Afterword"), p(5, "About the Authors"), p(5, "Copyright"),
+        p(6, "Authors’ Note"), body(6),
+    ) + introduction + listOf(
+        p(12, "THE FIRST NIGHT"), p(12, "Deny Trauma"), body(12), body(13),
+        p(40, "THE SECOND NIGHT"), p(40, "All Problems Are Interpersonal Relationship Problems"), body(40),
+        p(80, "THE THIRD NIGHT"), p(80, "Discard Other People’s Tasks"), body(80),
+        p(240, "Afterword"), body(240),
+        p(250, "About the Authors"), body(250),
+        p(254, "Copyright © 2013 by Ichiro Kishimi and Fumitake Koga.", "All rights reserved."),
+    )
+
+    @Test
+    fun findsTheIntroductionFromTheContentsListWhenItsHeadingRunsIntoTheText() {
+        val paragraphs = ebook(listOf(Paragraph(8, Sentences.split("Introduction On the outskirts of the thousand-year-old city lived a philosopher. $prose"))))
+        val b = Book("id", "T", 254, paragraphs)
+        assertEquals(b.firstSentenceOf(paragraphs.indexOfFirst { it.page == 8 }), b.start)
+        assertEquals(
+            listOf(
+                "Authors’ Note", "Introduction", "THE FIRST NIGHT: Deny Trauma",
+                "THE SECOND NIGHT: All Problems Are Interpersonal Relationship Problems",
+                "THE THIRD NIGHT: Discard Other People’s Tasks", "Afterword", "About the Authors", "Copyright",
+            ),
+            b.chapters.map { it.title },
+        )
+        assertEquals("THE FIRST NIGHT", b.sentence(b.chapters[2].sentence))
+    }
+
+    @Test
+    fun startsAtTheIntroductionOfAnEbook() {
+        val b = Book("id", "T", 254, ebook(listOf(p(8, "Introduction"), body(8))))
+        assertEquals("Introduction", b.sentence(b.start))
+    }
+
+    @Test
+    fun aCopyrightPageAtTheBackDoesNotHideTheStart() {
+        // No contents and no headings to go on: start past the title page and copyright.
+        val b = book(
+            p(1, "A Short Book"), p(2, "Copyright 2020 Someone.", "All rights reserved."),
+            body(3), body(4), body(5), body(30),
+            p(60, "Copyright © 2020 Someone.", "Printed in India."),
+        )
+        assertEquals(b.firstSentenceOf(2), b.start)
+    }
+
+    @Test
+    fun takesAnotherLookAtBooksSavedAsStartingAtTheTop() {
+        val b = Book("id", "T", 254, ebook(listOf(p(8, "Introduction"), body(8))), chapters = emptyList(), start = 0)
+        // As an older version saved it: no contentsVersion, start 0.
+        val old = org.json.JSONObject(b.toJson()).apply { remove("contentsVersion") }.toString()
+        val again = Book.fromJson(old)
+        assertEquals(false, again.hasContents)
+        assertEquals("Introduction", again.sentence(again.start))
+        // Once saved by this version, it's left alone.
+        assertEquals(0, Book.fromJson(b.toJson()).start)
+    }
 }

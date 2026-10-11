@@ -5,6 +5,7 @@ import android.content.Context
 import androidx.core.content.edit
 import io.github.akrishna87.vaasi.convert.Convert
 import io.github.akrishna87.vaasi.tts.Packs
+import io.github.akrishna87.vaasi.tts.Tts
 import io.github.akrishna87.vaasi.tts.Voice
 import io.github.akrishna87.vaasi.tts.VoicePack
 import kotlinx.coroutines.CoroutineScope
@@ -38,6 +39,11 @@ class SettingsStore(context: Context) {
     )
     val settings: StateFlow<Settings> = _settings
 
+    /** How many threads run the voice fastest on this phone, once measured. */
+    var voiceThreads: Int?
+        get() = prefs.getInt("voiceThreads", 0).takeIf { it > 0 }
+        set(value) = prefs.edit { putInt("voiceThreads", value ?: 0) }
+
     fun update(change: (Settings) -> Settings) {
         val s = change(_settings.value)
         _settings.value = s
@@ -69,6 +75,7 @@ class VaasiApp : Application() {
         library = Library(this)
         packs = Packs(this, scope)
         settings = SettingsStore(this)
+        settings.voiceThreads?.let { Tts.threads = it }
         Convert.init(this)
     }
 

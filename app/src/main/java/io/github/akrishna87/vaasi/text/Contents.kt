@@ -51,7 +51,9 @@ object Contents {
         val contentsPages = contentsPages(paragraphs)
 
         val headings: List<Pair<String, Int>> = // (title, paragraph)
-            fromOutline(paragraphs, outline).ifEmpty { fromHeadings(paragraphs, contentsPages) }
+            fromOutline(paragraphs, outline).ifEmpty {
+                fromContentsList(paragraphs, contentsPages).takeIf { it.size >= 2 } ?: fromHeadings(paragraphs, contentsPages)
+            }
         val chapters = headings.map { (title, p) -> Chapter(title, firstSentence[p]) }
             .distinctBy { it.sentence }
 
@@ -69,15 +71,97 @@ object Contents {
 
     private fun isProse(p: Paragraph) = text(p).length >= 120 || p.sentences.size >= 2
 
-    /** Pages holding a table of contents: a "Contents" heading, or mostly contents lines. */
+    private val contentsTitle = Regex("^(?:table of )?contents$", RegexOption.IGNORE_CASE)
+
+    /**
+     * Pages holding a table of contents: a "Contents" heading, or mostly contents lines, and
+     * the pages straight after one that carry on listing titles (ebooks' contents have no
+     * page numbers).
+     */
     private fun contentsPages(paragraphs: List<Paragraph>): Set<Int> {
         val pages = mutableSetOf<Int>()
-        paragraphs.groupBy { it.page }.forEach { (page, ps) ->
-            val titled = ps.any { Regex("^(?:table of )?contents$", RegexOption.IGNORE_CASE).matches(text(it).trim()) }
+        paragraphs.groupBy { it.page }.toSortedMap().forEach { (page, ps) ->
+            val titled = ps.any { contentsTitle.matches(text(it).trim()) }
             val lines = ps.count { contentsLine.matches(text(it).trim()) && text(it).length <= 90 }
-            if (titled || (ps.size >= 4 && lines * 2 >= ps.size)) pages += page
+            val carriesOn = page - 1 in pages && ps.size >= 3 && ps.all(::isEntryLike)
+            if (titled || (ps.size >= 4 && lines * 2 >= ps.size) || carriesOn) pages += page
         }
         return pages
+    }
+
+    private fun isEntryLike(p: Paragraph): Boolean {
+        val t = text(p).trim()
+        return p.sentences.size == 1 && t.length <= 90 && !t.endsWith('.')
+    }
+
+    /**
+     * Finds each title listed in the book's own contents page in the text after it, in order,
+     * as the chapters. Works when headings don't look like headings, such as when one runs
+     * into its first paragraph.
+     */
+    private fun fromContentsList(paragraphs: List<Paragraph>, contentsPages: Set<Int>): List<Pair<String, Int>> {
+        if (contentsPages.isEmpty()) return emptyList()
+        val lastContents = paragraphs.indexOfLast { it.page in contentsPages }
+        // Only the first contents page and those carrying on from it: not a list of figures later on.
+        val firstPage = contentsPages.min()
+        var lastPage = firstPage
+        while (lastPage + 1 in contentsPages) lastPage++
+        val lines = paragraphs.filter { it.page in firstPage..lastPage && it.sentences.size <= 2 }
+            .map { text(it).trim() }
+            .filter { !contentsTitle.matches(it) && it.length <= 120 }
+        // Strip page numbers only when the contents has them, so "Chapter 1" keeps its number.
+        val numbered = lines.count { it.last().isDigit() } * 2 >= lines.size
+        val entries = lines
+            .map { if (numbered) it.replace(Regex("[\\s.·…_-]*\\d{1,4}$"), "").trim() else it }
+            .filter { e -> e.count { it.isLetter() } >= 3 }
+        // Where each title first appears after the contents.
+        val at = entries.map { entry ->
+            (lastContents + 1 until paragraphs.size).firstOrNull { i ->
+                paragraphs[i].page !in contentsPages && opensWith(paragraphs[i], entry)
+            }
+        }
+        // Keep the longest run that's in the contents' order, so one title found in the wrong
+        // place (a copyright page listed first but printed at the back) doesn't lose the rest.
+        return inOrder(at).map { entries[it] to at[it]!! }
+    }
+
+    /** Indexes of the longest strictly increasing run of the non-null [values]. */
+    private fun inOrder(values: List<Int?>): List<Int> {
+        val best = IntArray(values.size)
+        val before = IntArray(values.size) { -1 }
+        var end = -1
+        for (i in values.indices) {
+            val v = values[i] ?: continue
+            best[i] = 1
+            for (j in 0 until i) {
+                val w = values[j] ?: continue
+                if (w < v && best[j] + 1 > best[i]) {
+                    best[i] = best[j] + 1
+                    before[i] = j
+                }
+            }
+            if (end < 0 || best[i] > best[end]) end = i
+        }
+        val run = ArrayList<Int>()
+        var i = end
+        while (i >= 0) {
+            run += i
+            i = before[i]
+        }
+        return run.reversed()
+    }
+
+    /** Whether paragraph [p] is the heading [title], or starts with it. */
+    private fun opensWith(p: Paragraph, title: String): Boolean {
+        val have = normalise(text(p))
+        val keys = listOf(title, title.replace(Regex("^\\d{1,4}\\s+(?=\\p{L})"), "")).map(::normalise).distinct()
+        return keys.any { want ->
+            want.length >= 4 && (
+                have == want || have.startsWith("$want ") ||
+                    // A heading split over two lines: "THE FIRST NIGHT" then "Deny Trauma".
+                    (isHeadingLike(p) && have.length >= 6 && want.startsWith("$have "))
+                )
+        }
     }
 
     /** Matches each bookmark to the paragraph on its page that best fits its title. */
@@ -121,7 +205,10 @@ object Contents {
         }
         // No headings: skip a leading title page, copyright notice or contents, if there is one.
         if (!hasFrontMatterBefore(paragraphs, paragraphs.size, contentsPages)) return 0
-        val after = paragraphs.indexOfLast { it.page in contentsPages || copyright.containsMatchIn(text(it)) }
+        // Front matter only: some ebooks keep their copyright page at the back.
+        val after = paragraphs.indexOfLast {
+            it.page <= horizon && (it.page in contentsPages || copyright.containsMatchIn(text(it)))
+        }
         val firstProse = (after + 1 until paragraphs.size).firstOrNull { isProse(paragraphs[it]) } ?: return 0
         // Start at the heading just above that prose, if it has one.
         return if (firstProse > after + 1 && isHeadingLike(paragraphs[firstProse - 1])) firstProse - 1 else firstProse

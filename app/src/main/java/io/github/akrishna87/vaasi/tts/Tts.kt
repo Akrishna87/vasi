@@ -27,6 +27,16 @@ object Tts {
     private val lock = Mutex()
     private var engine: OfflineTts? = null
     private var loadedPack: String? = null
+    private var loadedThreads = 0
+
+    /** The usual guess at how many threads to run the voice on. */
+    fun defaultThreads() = (Runtime.getRuntime().availableProcessors() - 1).coerceIn(1, 4)
+
+    /**
+     * How many threads the voice runs on: what [ThreadTuner] found fastest on this phone, once
+     * it has. A change reloads the model before the next sentence.
+     */
+    @Volatile var threads: Int = defaultThreads()
 
     private val _loading = MutableStateFlow(false)
     /** True while a voice model is being loaded into memory (a few seconds). */
@@ -65,7 +75,8 @@ object Tts {
     }
 
     private fun load(dir: File, pack: VoicePack): OfflineTts {
-        engine?.let { if (loadedPack == pack.id) return it }
+        val threads = threads
+        engine?.let { if (loadedPack == pack.id && loadedThreads == threads) return it }
         engine?.release()
         engine = null
         _loading.value = true
@@ -78,7 +89,6 @@ object Tts {
                 dataDir = File(dir, "espeak-ng-data").path,
                 lexicon = pack.lexicon?.let { File(dir, it).path } ?: "",
             )
-            val threads = (Runtime.getRuntime().availableProcessors() - 1).coerceIn(1, 4)
             val config = OfflineTtsConfig(
                 model = OfflineTtsModelConfig(kokoro = kokoro, numThreads = threads, debug = false, provider = "cpu"),
             )
@@ -87,6 +97,7 @@ object Tts {
             Log.i(TAG, "Loaded ${pack.id} in ${System.currentTimeMillis() - started} ms with $threads threads")
             engine = tts
             loadedPack = pack.id
+            loadedThreads = threads
             return tts
         } finally {
             _loading.value = false

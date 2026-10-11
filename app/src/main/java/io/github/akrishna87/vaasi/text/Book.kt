@@ -26,7 +26,10 @@ class Book(
     /** Where the main text begins (past the title page, copyright and contents). */
     val start: Int = start ?: found.second
 
-    /** Whether [chapters] and [start] were worked out when the PDF was added (with its bookmarks). */
+    /**
+     * Whether [chapters] and [start] were worked out when the PDF was added (with its bookmarks),
+     * by the current way of finding them; if not, they're worked out now and should be saved.
+     */
     val hasContents: Boolean = chapters != null && start != null
 
     /** Index of each paragraph's first sentence; one extra entry holds the total. */
@@ -70,6 +73,7 @@ class Book(
         put("title", title)
         put("pages", pages)
         put("start", start)
+        put("contentsVersion", CONTENTS_VERSION)
         put("chapters", JSONArray().apply {
             for (c in chapters) put(JSONObject().apply { put("title", c.title); put("sentence", c.sentence) })
         })
@@ -84,6 +88,9 @@ class Book(
     }.toString()
 
     companion object {
+        /** Bumped when finding chapters and the start improves, so saved books are looked at again. */
+        private const val CONTENTS_VERSION = 2
+
         fun fromJson(json: String): Book {
             val o = JSONObject(json)
             val ps = o.getJSONArray("paragraphs")
@@ -96,7 +103,10 @@ class Book(
             val chapters = o.optJSONArray("chapters")?.let { cs ->
                 (0 until cs.length()).map { i -> cs.getJSONObject(i).let { Chapter(it.getString("title"), it.getInt("sentence")) } }
             }
-            val start = if (o.has("start")) o.getInt("start") else null
+            // A book that was read from the very top by an older way of finding where the main
+            // text starts gets another look: it may have missed the introduction.
+            val stale = o.optInt("contentsVersion", 1) < CONTENTS_VERSION && o.optInt("start", 0) == 0
+            val start = if (o.has("start") && !stale) o.getInt("start") else null
             return Book(o.getString("id"), o.getString("title"), o.getInt("pages"), paragraphs, chapters, start)
         }
 
